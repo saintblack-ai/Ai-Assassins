@@ -67,23 +67,40 @@
   <script>
     const $=s=>document.querySelector(s); const now=()=>new Date().toLocaleString(undefined,{dateStyle:'full',timeStyle:'short'});
     const defaults={callsign:'Colonel',briefTime:'07:00',eveningTime:'19:00',focus:'geopolitics, defense, cyber, space, markets, weather',scripturePref:'kjv',priorities:'- ARCHAIOS Vault\n- QX AI Chip\n- Nanotech Dossier\n- Sermon Series\n- Saint Black OS',closing:'Honor. Discipline. Mercy. — ARCHAIOS Sentinel',latlon:'',newsApiKey:'',icsUrl:'',agendaCount:3};
-    const load=()=>Object.assign({},defaults,JSON.parse(localStorage.getItem('aia_settings_v3')||'null')||{});
-    const save=s=>localStorage.setItem('aia_settings_v3',JSON.stringify(s));
+    const load=()=>Object.assign({},defaults,JSON.parse(localStorage.getItem('aia_settings_v7')||'null')||{});
+    const save=s=>localStorage.setItem('aia_settings_v7',JSON.stringify(s));
     function tpl(){const s=load();const d=new Date();return{id:Date.now(),title:`Daily SitRep — ${d.toLocaleDateString()}`,generatedAt:d.toISOString(),sections:[
       {key:'overview',title:'🛰️ Overnight Overview',items:[]},
       {key:'markets',title:'📈 Markets Snapshot',kvs:[['S&P 500','—'],['Nasdaq','—'],['WTI','—'],['BTC','—']],note:'Auto-filled; edit freely.'},
       {key:'weather',title:'⛅ Weather (Local)',items:[],note:'Open‑Meteo (lat,lon)'},
-      {key:'calendar',title:'🗓️ Next Up (Calendar)',items:['(Connect an ICS link in Settings)'],note:'Shows next events if ICS allows CORS'},
-      {key:'focusblock',title:'🧭 Suggested Focus Block',items:['(Set an ICS link, then Generate)'],note:'Finds your next free 2‑hour window today'},
+      {key:'calendar',title:'🗓️ Next Up (Calendar)',items:['(Connect an ICS link in Settings)'],note:'Best with a CORS-friendly ICS link'},
+      {key:'focus',title:'🧭 Suggested Focus Block',items:['(Requires calendar)']},
       {key:'scripture',title:'📖 Scripture of the Day',items:[]},
       {key:'priorities',title:'🎯 Mission Priorities',items:s.priorities.split('\n').filter(Boolean).map(x=>x.replace(/^\-\s*/,''))},
       {key:'truthwave',title:'🜏 Black Phoenix Truthwave',items:['Top narrative/meme: —','Risk flag: —','Counter‑PSYOP: —']},
       {key:'tasks',title:'✅ Top 5 Tasks',items:['—','—','—','—','—']},
       {key:'closing',title:'⚔️ Command Note',items:[`${s.callsign}, stay sharp. ${s.closing}`]}
     ]};}
-    function render(b){const root=$('#brief');root.innerHTML='';b.sections.forEach(s=>{const sec=document.createElement('section');sec.className='card';sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;const body=sec.querySelector('.body');if(s.kvs){const kvs=document.createElement('div');kvs.className='kvs';s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k;const b=document.createElement('div');b.innerHTML=v==='—'?'<span style="color:#7a8696">—</span>':v;kvs.appendChild(a);kvs.appendChild(b);});body.appendChild(kvs);}else{const ul=document.createElement('ul');(s.items||[]).forEach(it=>{const li=document.createElement('li');li.textContent=it;ul.appendChild(li);});body.appendChild(ul);}root.appendChild(sec);});}
-    function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v3',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
-    function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]');$('#saveCount').textContent=`${all.length} saved`;const slot=$('#saved');slot.innerHTML='';all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});const card=document.createElement('div');card.className='card';card.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><strong>${b.title}</strong><span class='badge'>${when}</span></div>`;slot.appendChild(card);});}
+    function render(b){
+      const root=$('#brief');root.innerHTML='';
+      b.sections.forEach(s=>{
+        const sec=document.createElement('section');
+        sec.className='card';
+        sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;
+        const body=sec.querySelector('.body');
+        if(s.kvs){
+          const kvs=document.createElement('div');kvs.className='kvs';
+          s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k; const b=document.createElement('div');b.textContent=v; kvs.appendChild(a); kvs.appendChild(b);});
+          body.appendChild(kvs);
+        }
+        if(s.items){
+          s.items.forEach(it=>{const li=document.createElement('div'); li.innerHTML = it; body.appendChild(li);}); // RENDER FIX
+        }
+        root.appendChild(sec);
+      });
+    }
+    function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v7')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v7',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
+    function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v7')||'[]');$('#saveCount').textContent=`${all.length} saved`;const slot=$('#saved');slot.innerHTML='';all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});const card=document.createElement('div');card.className='card';card.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><strong>${b.title}</strong><span class='badge'>${when}</span></div>`;slot.appendChild(card);});}
     function settingsUI(){const s=load();const g=$('#settingsGrid');g.innerHTML='';g.style.display='grid';g.style.gridTemplateColumns='1fr 1fr';g.style.gap='10px';
       g.insertAdjacentHTML('beforeend',`<label>Callsign<br><input id='callsign' value='${s.callsign}'></label>`);
       g.insertAdjacentHTML('beforeend',`<label>Morning Time<br><input id='briefTime' type='time' value='${s.briefTime}'></label>`);
@@ -102,10 +119,10 @@
       if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js');}
       $('#generate').onclick=async()=>{let d=tpl(); render(d); try{ d=await window.AIA.fillLive(d, load()); render(d);}catch{}};
       $('#save').onclick=()=>saveBrief(b);
-      $('#export').onclick=()=>{const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]')}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500);};
+      $('#export').onclick=()=>{const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v7')||'[]')}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500);};
       $('#print').onclick=()=>window.print();
       const dlg=$('#settingsDialog'); $('#openSettings').onclick=()=>{settingsUI(); dlg.showModal();}; $('#closeSettings').onclick=()=>dlg.close();
-      $('#reset').onclick=()=>{localStorage.removeItem('aia_settings_v3'); settingsUI();};
+      $('#reset').onclick=()=>{localStorage.removeItem('aia_settings_v7'); settingsUI();};
       $('#saveSettings').onclick=()=>{const s={
         callsign:document.querySelector('#callsign').value.trim()||'Colonel',
         briefTime:document.querySelector('#briefTime').value||'07:00',
