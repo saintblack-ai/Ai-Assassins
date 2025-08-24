@@ -1,6 +1,5 @@
-<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'>
-<defs><radialGradient id='g' cx='35%' cy='30%' r='80%'><stop offset='0' stop-color='#55d6be'/><stop offset='1' stop-color='#0b0f13'/></radialGradient></defs>
-<circle cx='120' cy='120' r='118' fill='url(#g)' stroke='#1f2a38' stroke-width='4'/>
-<g fill='none' stroke='#8ab4f8' stroke-width='3'><polygon points='120,22 212,180 28,180'/><polygon points='120,48 188,168 52,168'/><circle cx='120' cy='120' r='52'/></g>
-<g fill='#e8edf3' font-family='system-ui,Segoe UI,Roboto' font-weight='700' text-anchor='middle'><text x='120' y='126' font-size='22'>ARCHAIOS</text></g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
+<defs><radialGradient id="g" cx="35%" cy="30%" r="80%"><stop offset="0" stop-color="#55d6be"/><stop offset="1" stop-color="#0b0f13"/></radialGradient></defs>
+<circle cx="120" cy="120" r="118" fill="url(#g)" stroke="#1f2a38" stroke-width="4"/>
+<g fill="none" stroke="#8ab4f8" stroke-width="3"><polygon points="120,22 212,180 28,180"/><polygon points="120,48 188,168 52,168"/><circle cx="120" cy="120" r="52"/></g>
 </svg>
