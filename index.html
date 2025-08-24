@@ -15,7 +15,6 @@
     header{position:sticky;top:0;background:#0b0f13cc;border-bottom:1px solid var(--border)}
     .wrap{max-width:1100px;margin:auto;padding:16px}
     .row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
-    .logo{width:44px;height:44px;border-radius:10px;background:#0e141c url('archaios-seal.svg') center/cover no-repeat}
     button{background:#1a2330;border:1px solid #223041;color:#e8edf3;padding:10px 14px;border-radius:10px}
     .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}
@@ -67,32 +66,57 @@
   <script type="module" src="./integrations.js"></script>
   <script>
     const $=s=>document.querySelector(s); const now=()=>new Date().toLocaleString(undefined,{dateStyle:'full',timeStyle:'short'});
-    const defaults={callsign:'Colonel',briefTime:'07:00',eveningTime:'19:00',focus:'geopolitics, defense, cyber, space, markets, weather',scripturePref:'kjv',priorities:'- ARCHAIOS Vault\n- QX AI Chip\n- Nanotech Dossier\n- Sermon Series\n- Saint Black OS',closing:'Honor. Discipline. Mercy. — ARCHAIOS Sentinel',latlon:'',newsApiKey:''};
-    const load=()=>Object.assign({},defaults,JSON.parse(localStorage.getItem('aia_settings_v2')||'null')||{});
-    const save=s=>localStorage.setItem('aia_settings_v2',JSON.stringify(s));
+    const defaults={callsign:'Colonel',briefTime:'07:00',eveningTime:'19:00',focus:'geopolitics, defense, cyber, space, markets, weather',scripturePref:'kjv',priorities:'- ARCHAIOS Vault\n- QX AI Chip\n- Nanotech Dossier\n- Sermon Series\n- Saint Black OS',closing:'Honor. Discipline. Mercy. — ARCHAIOS Sentinel',latlon:'',newsApiKey:'',icsUrl:'',agendaCount:3};
+    const load=()=>Object.assign({},defaults,JSON.parse(localStorage.getItem('aia_settings_v3')||'null')||{});
+    const save=s=>localStorage.setItem('aia_settings_v3',JSON.stringify(s));
     function tpl(){const s=load();const d=new Date();return{id:Date.now(),title:`Daily SitRep — ${d.toLocaleDateString()}`,generatedAt:d.toISOString(),sections:[
       {key:'overview',title:'🛰️ Overnight Overview',items:[]},
       {key:'markets',title:'📈 Markets Snapshot',kvs:[['S&P 500','—'],['Nasdaq','—'],['WTI','—'],['BTC','—']],note:'Auto-filled; edit freely.'},
       {key:'weather',title:'⛅ Weather (Local)',items:[],note:'Open‑Meteo (lat,lon)'},
+      {key:'calendar',title:'🗓️ Next Up (Calendar)',items:['(Connect an ICS link in Settings)'],note:'Shows next events if ICS allows CORS'},
       {key:'scripture',title:'📖 Scripture of the Day',items:[]},
       {key:'priorities',title:'🎯 Mission Priorities',items:s.priorities.split('\n').filter(Boolean).map(x=>x.replace(/^\-\s*/,''))},
       {key:'truthwave',title:'🜏 Black Phoenix Truthwave',items:['Top narrative/meme: —','Risk flag: —','Counter‑PSYOP: —']},
       {key:'tasks',title:'✅ Top 5 Tasks',items:['—','—','—','—','—']},
       {key:'closing',title:'⚔️ Command Note',items:[`${s.callsign}, stay sharp. ${s.closing}`]}
     ]};}
-    function render(b){const root=$('#brief');root.innerHTML='';b.sections.forEach(s=>{const sec=document.createElement('section');sec.className='card';sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;const body=sec.querySelector('.body');if(s.kvs){const kvs=document.createElement('div');kvs.className='kvs';s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k;const c=document.createElement('div');c.innerHTML=v==='—'?'<span style="color:#7a8696">—</span>':v;kvs.appendChild(a);kvs.appendChild(c);});body.appendChild(kvs);}else{const ul=document.createElement('ul');(s.items||[]).forEach(it=>{const li=document.createElement('li');li.innerHTML=`<div style='width:10px;height:10px;border-radius:999px;background:#55d6be;margin-top:8px'></div><div>${it}</div>`;ul.appendChild(li);});body.appendChild(ul);}$('#brief').appendChild(sec);});}
-    function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v2',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
-    function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]');$('#saveCount').textContent=`${all.length} saved`;const slot=$('#saved');slot.innerHTML='';all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});const card=document.createElement('div');card.className='card';card.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><strong>${b.title}</strong><span class='badge'>${when}</span></div>`;slot.appendChild(card);});}
-    function settingsUI(){const s=load();const g=$('#settingsGrid');g.innerHTML='';g.style.display='grid';g.style.gridTemplateColumns='1fr 1fr';g.style.gap='10px';g.insertAdjacentHTML('beforeend',`<label>Callsign<br><input id='callsign' value='${s.callsign}'></label>`);g.insertAdjacentHTML('beforeend',`<label>Morning Time<br><input id='briefTime' type='time' value='${s.briefTime}'></label>`);g.insertAdjacentHTML('beforeend',`<label>Evening Time<br><input id='eveningTime' type='time' value='${s.eveningTime}'></label>`);g.insertAdjacentHTML('beforeend',`<label>Focus<br><input id='focus' value='${s.focus}'></label>`);g.insertAdjacentHTML('beforeend',`<label>Scripture<br><select id='scripturePref'><option ${s.scripturePref==='kjv'?'selected':''} value='kjv'>KJV</option><option ${s.scripturePref==='niv'?'selected':''} value='niv'>NIV</option><option ${s.scripturePref==='esv'?'selected':''} value='esv'>ESV</option></select></label>`);g.insertAdjacentHTML('beforeend',`<label>Priorities<br><textarea id='priorities' rows='6'>${s.priorities}</textarea></label>`);g.insertAdjacentHTML('beforeend',`<label>Open‑Meteo lat,lon<br><input id='latlon' value='${s.latlon}' placeholder='29.7604,-95.3698'></label>`);g.insertAdjacentHTML('beforeend',`<label>NewsAPI key<br><input id='newsApiKey' value='${s.newsApiKey}' placeholder='optional'></label>`);}
+    function render(b){const root=$('#brief');root.innerHTML='';b.sections.forEach(s=>{const sec=document.createElement('section');sec.className='card';sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;const body=sec.querySelector('.body');if(s.kvs){const kvs=document.createElement('div');kvs.className='kvs';s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k;const b=document.createElement('div');b.innerHTML=v==='—'?'<span style="color:#7a8696">—</span>':v;kvs.appendChild(a);kvs.appendChild(b);});body.appendChild(kvs);}else{const ul=document.createElement('ul');(s.items||[]).forEach(it=>{const li=document.createElement('li');li.textContent=it;ul.appendChild(li);});body.appendChild(ul);}root.appendChild(sec);});}
+    function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v3',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
+    function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]');$('#saveCount').textContent=`${all.length} saved`;const slot=$('#saved');slot.innerHTML='';all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});const card=document.createElement('div');card.className='card';card.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><strong>${b.title}</strong><span class='badge'>${when}</span></div>`;slot.appendChild(card);});}
+    function settingsUI(){const s=load();const g=$('#settingsGrid');g.innerHTML='';g.style.display='grid';g.style.gridTemplateColumns='1fr 1fr';g.style.gap='10px';
+      g.insertAdjacentHTML('beforeend',`<label>Callsign<br><input id='callsign' value='${s.callsign}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Morning Time<br><input id='briefTime' type='time' value='${s.briefTime}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Evening Time<br><input id='eveningTime' type='time' value='${s.eveningTime}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Focus<br><input id='focus' value='${s.focus}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Scripture<br><select id='scripturePref'><option value='kjv' ${s.scripturePref==='kjv'?'selected':''}>KJV</option><option value='niv' ${s.scripturePref==='niv'?'selected':''}>NIV</option><option value='esv' ${s.scripturePref==='esv'?'selected':''}>ESV</option></select></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Open‑Meteo (lat,lon)<br><input id='latlon' placeholder='29.7604,-95.3698' value='${s.latlon}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>NewsAPI key (optional)<br><input id='newsApiKey' placeholder='paste key' value='${s.newsApiKey}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Calendar ICS URL<br><input id='icsUrl' placeholder='https://.../calendar.ics' value='${s.icsUrl}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Agenda items to show<br><input id='agendaCount' type='number' min='1' max='10' value='${s.agendaCount}'></label>`);
+      g.insertAdjacentHTML('beforeend',`<label>Standing Priorities<br><textarea id='priorities' rows='6'>${s.priorities}</textarea></label>`);
+    }
     document.addEventListener('DOMContentLoaded', async ()=>{
       $('#subtitle').textContent=now(); let b=tpl(); render(b); showSaved();
       try{ b=await window.AIA.fillLive(b, load()); render(b);}catch{}
       if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js');}
       $('#generate').onclick=async()=>{let d=tpl(); render(d); try{ d=await window.AIA.fillLive(d, load()); render(d);}catch{}};
-      $('#save').onclick=()=>saveBrief(b); $('#export').onclick=()=>{const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]')}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500);}; $('#print').onclick=()=>window.print();
+      $('#save').onclick=()=>saveBrief(b);
+      $('#export').onclick=()=>{const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v3')||'[]')}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500);};
+      $('#print').onclick=()=>window.print();
       const dlg=$('#settingsDialog'); $('#openSettings').onclick=()=>{settingsUI(); dlg.showModal();}; $('#closeSettings').onclick=()=>dlg.close();
-      $('#reset').onclick=()=>{localStorage.removeItem('aia_settings_v2'); settingsUI();};
-      $('#saveSettings').onclick=()=>{const s={callsign:document.querySelector('#callsign').value.trim()||'Colonel',briefTime:document.querySelector('#briefTime').value||'07:00',eveningTime:document.querySelector('#eveningTime').value||'19:00',focus:document.querySelector('#focus').value.trim(),scripturePref:document.querySelector('#scripturePref').value,priorities:document.querySelector('#priorities').value,closing:'Honor. Discipline. Mercy. — ARCHAIOS Sentinel',latlon:document.querySelector('#latlon').value.trim(),newsApiKey:document.querySelector('#newsApiKey').value.trim()}; localStorage.setItem('aia_settings_v2',JSON.stringify(s)); dlg.close();};
+      $('#reset').onclick=()=>{localStorage.removeItem('aia_settings_v3'); settingsUI();};
+      $('#saveSettings').onclick=()=>{const s={
+        callsign:document.querySelector('#callsign').value.trim()||'Colonel',
+        briefTime:document.querySelector('#briefTime').value||'07:00',
+        eveningTime:document.querySelector('#eveningTime').value||'19:00',
+        focus:document.querySelector('#focus').value.trim(),
+        scripturePref:document.querySelector('#scripturePref').value,
+        priorities:document.querySelector('#priorities').value,
+        latlon:document.querySelector('#latlon').value.trim(),
+        newsApiKey:document.querySelector('#newsApiKey').value.trim(),
+        icsUrl:document.querySelector('#icsUrl').value.trim(),
+        agendaCount:parseInt(document.querySelector('#agendaCount').value)||3
+      }; save(s); dlg.close();};
     });
   </script>
 </body>
