@@ -109,6 +109,17 @@ window.AIA=(()=>{
       const upcoming = events.filter(e=> e.start && e.start > now).sort((a,b)=> a.start - b.start).slice(0, s.agendaCount||3);
       if(!upcoming.length){ S.items=['(No upcoming events found)']; return; }
       S.items = upcoming.map(e => fmtEvent(e));
+      const todayEvents = events.filter(e=> sameDay(e.start, now));
+      // D+1 preview (tomorrow)
+      const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate()+1);
+      const tomorrowEvents = events.filter(e=> sameDay(e.start, tomorrow)).sort((a,b)=> a.start-b.start).slice(0, s.agendaCount||3);
+      if (tomorrowEvents.length){
+        S.items.push('<em>D+1 preview:</em>');
+        S.items = S.items.concat(tomorrowEvents.map(e=> fmtEvent(e)));
+      }
+      // Suggest a focus block: next free 2-hour window today between 08:00 and 19:00
+      suggestFocus(todayEvents, b);
+
     }catch(e){
       S.items=[`(Calendar blocked by CORS or invalid ICS URL)`];
     }
@@ -159,3 +170,34 @@ window.AIA=(()=>{
 
   return { fillLive: fill };
 })();
+  function sameDay(a,b){ return a.getFullYear()===b.getFullYear() && a.getMonth()===b.getMonth() && a.getDate()===b.getDate(); }
+  function suggestFocus(todayEvents, brief){
+    const S = sec(brief,'focusblock'); if(!S) return;
+    // Define working window 08:00-19:00 today
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), Math.max(8, now.getHours()), now.getMinutes(), 0);
+    const end   = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0);
+    // Build busy slots
+    const busy = todayEvents.map(e=>({s:e.start, e:e.end || new Date(e.start.getTime()+60*60*1000)})).filter(x=> x.e>start && x.s<end).sort((a,b)=>a.s-b.s);
+    // Scan for next free >= 120min
+    let cursor = new Date(start);
+    for(const b of busy){
+      if(b.s > cursor){
+        const gap = (b.s - cursor)/60000;
+        if(gap >= 120){ // two hours
+          const fin = new Date(cursor.getTime()+120*60000);
+          S.items = [ `${fmtTime(cursor)}–${fmtTime(fin)} — Deep work on QX AI chip or Nanotech dossier` ]; return;
+        }
+      }
+      if(b.e > cursor) cursor = new Date(b.e);
+    }
+    if(end > cursor && (end - cursor)/60000 >= 120){
+      const fin = new Date(cursor.getTime()+120*60000);
+      S.items = [ `${fmtTime(cursor)}–${fmtTime(fin)} — Deep work on QX AI chip or Nanotech dossier` ]; return;
+    }
+    // fallback evening block
+    const fbS = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 19, 0, 0);
+    const fbE = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 21, 0, 0);
+    S.items = [ `${fmtTime(fbS)}–${fmtTime(fbE)} — Strategy review & sermon prep` ];
+  }
+  function fmtTime(d){ return new Intl.DateTimeFormat(undefined,{hour:'2-digit', minute:'2-digit'}).format(d); }
