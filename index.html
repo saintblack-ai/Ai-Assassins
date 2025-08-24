@@ -1,0 +1,46 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Assassins — Daily Brief</title>
+<link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0b0f13">
+<meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<style>body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;background:#0b0f13;color:#e8edf3} .wrap{max-width:1100px;margin:auto;padding:16px}
+header{position:sticky;top:0;background:#0b0f13cc;border-bottom:1px solid #223041} .row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+.logo{width:44px;height:44px;border-radius:10px;background:#0e141c url('assets/archaios-seal.svg') center/cover no-repeat}
+button{background:#1a2330;border:1px solid #223041;color:#e8edf3;padding:10px 14px;border-radius:10px} .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+.card{background:#0f141b;border:1px solid #223041;border-radius:14px;padding:16px} .kvs{display:grid;grid-template-columns:1fr auto;gap:6px;font-variant-numeric:tabular-nums} .badge{font-size:11px;padding:3px 8px;border:1px solid #223041;border-radius:999px;color:#7a8696}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}</style></head>
+<body>
+<header><div class="wrap"><div class="row"><div style="display:flex;gap:12px;align-items:center">
+<div class="logo"></div><div><h1 style="margin:0;font-size:18px">AI Assassins — Daily Brief</h1><div id="subtitle" style="color:#7a8696"></div></div></div>
+<div style="display:flex;gap:8px;flex-wrap:wrap"><button id="generate">Generate Brief</button><button id="save">Save</button><button id="export">Export</button><button id="print">Print</button><button id="openSettings">Settings</button></div>
+</div></div></header>
+<main class="wrap">
+<div id="brief" class="grid"></div>
+<div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px"><h2>Saved Briefs</h2><span id="saveCount" class="badge">0 saved</span></div>
+<div id="saved" class="grid"></div>
+</main>
+<dialog id="settingsDialog"><div style="padding:14px 16px;border-bottom:1px solid #223041;display:flex;justify-content:space-between;align-items:center"><strong>Brief Settings</strong><button id="closeSettings">✕</button></div>
+<div style="padding:16px" class="grid" id="settingsGrid"></div>
+<div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;border-top:1px solid #223041"><button id="reset">Reset</button><button id="saveSettings">Save Settings</button></div></dialog>
+<script type="module" src="./integrations.js"></script>
+<script>
+const $=s=>document.querySelector(s); const wrap=(h)=>{const d=document.createElement('div'); d.innerHTML=h; return d.firstElementChild;}
+const defaults={callsign:"Colonel",briefTime:"07:00",eveningTime:"19:00",focus:"geopolitics, defense, cyber, space, markets, weather",scripturePref:"kjv",priorities:"- ARCHAIOS Vault\n- QX AI Chip\n- Nanotech Dossier\n- Sermon Series\n- Saint Black OS",closing:"Honor. Discipline. Mercy. — ARCHAIOS Sentinel",latlon:"",newsApiKey:""};
+function load(){return Object.assign({},defaults, JSON.parse(localStorage.getItem('aia_settings_v2')||'null')||{});} function save(s){localStorage.setItem('aia_settings_v2',JSON.stringify(s));}
+function tpl(){const s=load(); const d=new Date(); return {id:Date.now(), title:`Daily SitRep — ${d.toLocaleDateString()}`, generatedAt:d.toISOString(), sections:[
+{key:'overview',title:'🛰️ Overnight Overview',items:[]},
+{key:'markets',title:'📈 Markets Snapshot',kvs:[['S&P 500','—'],['Nasdaq','—'],['WTI','—'],['BTC','—']],note:'Auto-filled; edit freely.'},
+{key:'weather',title:'⛅ Weather (Local)',items:[],note:'Open‑Meteo (lat,lon)'},
+{key:'scripture',title:'📖 Scripture of the Day',items:[]},
+{key:'priorities',title:'🎯 Mission Priorities',items:s.priorities.split('\n').filter(Boolean).map(x=>x.replace(/^\-\s*/,''))},
+{key:'truthwave',title:'🜏 Black Phoenix Truthwave',items:['Top narrative/meme: —','Counter‑PSYOP note: —']},
+{key:'tasks',title:'✅ Top 5 Tasks',items:['—','—','—','—','—']},
+{key:'closing',title:'⚔️ Command Note',items:[`${s.callsign}, stay sharp. ${s.closing}`]}
+]};}
+function render(b){const root=$('#brief'); root.innerHTML=''; b.sections.forEach(s=>{const card=wrap(`<section class='card'><div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div></section>`); const body=card.querySelector('.body'); if(s.kvs){const kvs=document.createElement('div'); kvs.className='kvs'; s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k; const c=document.createElement('div'); c.innerHTML=v==='—'?'<span style="color:#7a8696">—</span>':v; kvs.appendChild(a); kvs.appendChild(c);}); body.appendChild(kvs);} else {const ul=document.createElement('ul'); s.items.forEach(it=>ul.appendChild(wrap(`<li>• ${it}</li>`))); body.appendChild(ul);} root.appendChild(card);});}
+function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]'); all.unshift(b); localStorage.setItem('aia_briefs_v2',JSON.stringify(all)); $('#saveCount').textContent=`${all.length} saved`; }
+function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]'); $('#saveCount').textContent=`${all.length} saved`; const slot=$('#saved'); slot.innerHTML=''; all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium', timeStyle:'short'}); slot.appendChild(wrap(`<div class='card'><div style='display:flex;justify-content:space-between;align-items:center'><strong>${b.title}</strong><span class='badge'>${when}</span></div></div>`));});}
+function settingsUI(){const s=load(); const g=$('#settingsGrid'); g.innerHTML=''; g.style.gridTemplateColumns='1fr 1fr'; g.appendChild(wrap(`<label>Callsign<br><input id='callsign' value='${s.callsign}'></label>`)); g.appendChild(wrap(`<label>Morning Time<br><input id='briefTime' type='time' value='${s.briefTime}'></label>`)); g.appendChild(wrap(`<label>Evening Time<br><input id='eveningTime' type='time' value='${s.eveningTime}'></label>`)); g.appendChild(wrap(`<label>Focus<br><input id='focus' value='${s.focus}'></label>`)); g.appendChild(wrap(`<label>Scripture<br><select id='scripturePref'><option ${s.scripturePref==='kjv'?'selected':''} value='kjv'>KJV</option><option ${s.scripturePref==='niv'?'selected':''} value='niv'>NIV</option><option ${s.scripturePref==='esv'?'selected':''} value='esv'>ESV</option></select></label>`)); g.appendChild(wrap(`<label style='grid-column:1/-1'>Priorities<br><textarea id='priorities' rows='6'>${s.priorities}</textarea></label>`)); g.appendChild(wrap(`<label>Open‑Meteo lat,lon<br><input id='latlon' value='${s.latlon}' placeholder='29.7604,-95.3698'></label>`)); g.appendChild(wrap(`<label>NewsAPI key (optional)<br><input id='newsApiKey' value='${s.newsApiKey}'></label>`));}
+document.addEventListener('DOMContentLoaded', async ()=>{ $('#subtitle').textContent=new Date().toLocaleString(undefined,{dateStyle:'full', timeStyle:'short'}); let b=tpl(); render(b); showSaved(); try{ b=await window.AIA.fillLive(b, load()); render(b);}catch{} if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js');} $('#generate').onclick=async()=>{let d=tpl(); render(d); try{ d=await window.AIA.fillLive(d, load()); render(d);}catch{}}; $('#save').onclick=()=>saveBrief(b); $('#export').onclick=()=>{const data={settings:load(), briefs:JSON.parse(localStorage.getItem('aia_briefs_v2')||'[]')}; const url=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'})); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),2000);}; $('#print').onclick=()=>window.print(); const dlg=document.querySelector('#settingsDialog'); $('#openSettings').onclick=()=>{settingsUI(); dlg.showModal();}; $('#closeSettings').onclick=()=>dlg.close(); $('#reset').onclick=()=>localStorage.removeItem('aia_settings_v2'); $('#saveSettings').onclick=()=>{const s={callsign:document.querySelector('#callsign').value.trim()||'Colonel',briefTime:document.querySelector('#briefTime').value||'07:00',eveningTime:document.querySelector('#eveningTime').value||'19:00',focus:document.querySelector('#focus').value.trim(),scripturePref:document.querySelector('#scripturePref').value,priorities:document.querySelector('#priorities').value,latlon:document.querySelector('#latlon').value.trim(),newsApiKey:document.querySelector('#newsApiKey').value.trim(),closing:load().closing}; save(s); dlg.close();};});</script>
+</body></html>
