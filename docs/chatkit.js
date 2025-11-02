@@ -1,75 +1,80 @@
-// Front-end for Archaios ChatKit integration
-// Replace PROXY_URL with the URL of your deployed proxy function
-// and WORKFLOW_ID with your published workflow ID.
-
+/* ARCHAIOS ChatKit v1.0 — Saint Black OS (Final) */
+// Update these if your Worker route or workflow changes:
 const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846";
-const PROXY_URL = "https://YOUR_PROXY_URL_HERE";
+const PROXY_URL   = "https://archaios-proxy.quandrix357.workers.dev/chat";
 
-/**
- * Append a message to the log area.
- * @param {string} text
- */
-function appendMessage(text) {
-  const log = document.getElementById('log');
-  const pre = document.createElement('pre');
-  pre.style.whiteSpace = 'pre-wrap';
-  pre.textContent = text;
-  log.appendChild(pre);
-  log.scrollTop = log.scrollHeight;
+// ---------- DOM helpers ----------
+const $ = (s) => document.querySelector(s);
+const logEl   = $("#log");
+const inputEl = $("#input");
+const sendBtn = $("#send");
+
+function append(role, text) {
+  if (!logEl) return;
+  const pre = document.createElement("pre");
+  pre.style.whiteSpace = "pre-wrap";
+  pre.textContent = `${role}: ${text}`;
+  logEl.appendChild(pre);
+  logEl.scrollTop = logEl.scrollHeight;
 }
 
-/**
- * Call the ChatKit proxy with the given message.
- * @param {string} message
- */
-async function callChatKit(message) {
-  const payload = {
-    workflow_id: WORKFLOW_ID,
-    input: message
-  };
-  const response = await fetch(PROXY_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload)
-  });
-  const result = await response.json();
-  return result;
+async function callArchaios(message) {
+  if (!message) return;
+  if (sendBtn) sendBtn.disabled = true;
+  append("You", message);
+
+  try {
+    const res = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        message,
+        workflow_id: WORKFLOW_ID
+      }),
+    });
+
+    const ct = (res.headers.get("content-type") || "").toLowerCase();
+    let payload = ct.includes("application/json") ? await res.json() : await res.text();
+
+    const reply =
+      typeof payload === "string"
+        ? payload
+        : payload.reply || payload.message || JSON.stringify(payload, null, 2);
+
+    append("ARCHAIOS", reply);
+  } catch (err) {
+    append("SYSTEM", `Error: ${err.message}`);
+  } finally {
+    if (sendBtn) sendBtn.disabled = false;
+    if (inputEl) {
+      inputEl.value = "";
+      inputEl.focus();
+    }
+  }
 }
 
-/**
- * Initialize the chat UI and handle form submissions.
- */
-function setupUI() {
-  const root = document.getElementById('archaios-chat');
-  root.innerHTML = `
-    <div style="max-width:800px;margin:24px auto;font-family:system-ui">
-      <h1>ARCHAIOS • Vault Interface</h1>
-      <div id="log" style="border:1px solid #ddd;padding:12px;border-radius:8px;min-height:200px;"></div>
-      <form id="chat-form" style="margin-top:12px;display:flex;gap:8px">
-        <input id="chat-input" style="flex:1;padding:10px;border:1px solid #ccc;border-radius:6px" placeholder="Ask Archaios…" />
-        <button>Send</button>
-      </form>
-    </div>
-  `;
-
-  const form = document.getElementById('chat-form');
-  const input = document.getElementById('chat-input');
-
-  form.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const msg = input.value.trim();
-    if (!msg) return;
-    appendMessage('You: ' + msg);
-    input.value = '';
-    const result = await callChatKit(msg);
-    appendMessage('Archaios:\n' + JSON.stringify(result, null, 2));
+// ---------- UI wiring ----------
+if (sendBtn) {
+  sendBtn.addEventListener("click", () => {
+    const msg = (inputEl?.value || "").trim();
+    if (msg) callArchaios(msg);
   });
-
-  // Send an initial handshake message
-  callChatKit('Initialize Archaios.').then((initial) => {
-    appendMessage('Archaios:\n' + JSON.stringify(initial, null, 2));
+}
+if (inputEl) {
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      const msg = inputEl.value.trim();
+      if (msg) callArchaios(msg);
+    }
   });
 }
 
-// Initialize the chat when the script loads
-setupUI();
+// Optional: health check to show connectivity
+(async () => {
+  try {
+    const pingUrl = PROXY_URL.replace(/\/$/, "").replace(/\/chat$/, "/health");
+    const res = await fetch(pingUrl).catch(() => null);
+    if (res && res.ok) append("SYSTEM", "Proxy online ✅");
+  } catch (_) { /* ignore */ }
+})();
