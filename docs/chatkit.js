@@ -1,7 +1,7 @@
-// chatkit.js — ARCHAIOS Vault Interface ↔ Cloudflare Worker
+// chatkit.js – ARCHAIOS Vault Interface ↔ Cloudflare Worker
 
 const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846"; // your workflow
-const PROXY_URL   = "https://archaios-proxy.quandrix357.workers.dev";      // no trailing slash
+const PROXY_URL   = "https://archaios-proxy.quandrix357.workers.dev"; // no trailing slash
 
 function appendMessage(text) {
   const log = document.getElementById('log');
@@ -13,42 +13,35 @@ function appendMessage(text) {
 }
 
 async function callChatKit(message) {
-  try {
-    const payload = { workflow_id: WORKFLOW_ID, message };
-    const res = await fetch(PROXY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
+  const payload = { workflow_id: WORKFLOW_ID, input: message };
+  const response = await fetch(PROXY_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
 
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      appendMessage(`Archaios error (${res.status}): ${data?.error || res.statusText}`);
-      if (data?.detail) appendMessage(String(data.detail));
-      return;
-    }
-
-    // Prefer 'text' from Worker, else show raw
-    appendMessage(`Archaios: ${data.text || JSON.stringify(data)}`);
-  } catch (e) {
-    appendMessage(`Archaios exception: ${e}`);
+  if (!response.ok) {
+    const errorText = await response.text();
+    appendMessage('ERROR: ' + errorText);
+    return;
   }
+
+  const data = await response.text();
+  appendMessage('Archaios: ' + data);
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('userInput');
-  const send  = document.getElementById('sendBtn');
+document.getElementById('send').addEventListener('click', async () => {
+  const input = document.getElementById('msg');
+  const message = input.value.trim();
+  if (!message) return;
+  appendMessage('You: ' + message);
+  input.value = '';
+  await callChatKit(message);
+});
 
-  function sendMsg() {
-    const msg = (input.value || '').trim();
-    if (!msg) return;
-    appendMessage(`You: ${msg}`);
-    input.value = '';
-    callChatKit(msg);
+document.getElementById('msg').addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    document.getElementById('send').click();
   }
-
-  send?.addEventListener('click', sendMsg);
-  input?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') sendMsg();
-  });
 });
