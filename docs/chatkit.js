@@ -1,8 +1,10 @@
-// chatkit.js – ARCHAIOS Vault Interface ↔ Cloudflare Worker
+// chatkit.js — ARCHAIOS Vault Interface ↔ Cloudflare Worker
 
-const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846"; // your workflow
+// 1) Your IDs/URLs
+const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846";
 const PROXY_URL   = "https://archaios-proxy.quandrix357.workers.dev"; // no trailing slash
 
+// 2) UI helpers
 function appendMessage(text) {
   const log = document.getElementById('log');
   const pre = document.createElement('pre');
@@ -12,36 +14,45 @@ function appendMessage(text) {
   log.scrollTop = log.scrollHeight;
 }
 
+// 3) Call the proxy (Worker expects { message, workflow_id })
 async function callChatKit(message) {
-  const payload = { workflow_id: WORKFLOW_ID, input: message };
-  const response = await fetch(PROXY_URL, {
+  const payload = {
+    workflow_id: WORKFLOW_ID,
+    message: message // <-- key corrected
+  };
+
+  const res = await fetch(PROXY_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    appendMessage('ERROR: ' + errorText);
-    return;
+  if (!res.ok) {
+    const errText = await res.text().catch(() => String(res.status));
+    throw new Error(`Proxy ${res.status}: ${errText}`);
   }
 
-  const data = await response.text();
-  appendMessage('Archaios: ' + data);
+  return await res.text();
 }
 
-document.getElementById('send').addEventListener('click', async () => {
-  const input = document.getElementById('msg');
-  const message = input.value.trim();
-  if (!message) return;
-  appendMessage('You: ' + message);
-  input.value = '';
-  await callChatKit(message);
-});
+// 4) Wire up the form
+window.addEventListener('DOMContentLoaded', () => {
+  const form = document.getElementById('form');
+  const input = document.getElementById('input');
 
-document.getElementById('msg').addEventListener('keydown', async (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
+  appendMessage('SYSTEM: Ready. Type and press Enter.');
+
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    document.getElementById('send').click();
-  }
+    const text = (input.value || '').trim();
+    if (!text) return;
+    appendMessage(`You: ${text}`);
+    input.value = '';
+    try {
+      const reply = await callChatKit(text);
+      appendMessage(`ARCHAIOS: ${reply}`);
+    } catch (err) {
+      appendMessage(`ERROR: ${err.message}`);
+    }
+  });
 });
