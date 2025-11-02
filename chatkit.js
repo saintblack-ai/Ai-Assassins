@@ -3,7 +3,7 @@
 // Replace WORKFLOW_ID with your workflow ID from the Agent Builder
 
 const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846";
-const PROXY_URL = "https://YOUR_PROXY_URL_HERE";
+const PROXY_URL = "https://archaios-proxy.quandrix357.workers.dev;
 
 function appendMessage(text) {
   const log = document.getElementById('log');
