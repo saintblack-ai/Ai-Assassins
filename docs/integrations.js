@@ -13,6 +13,7 @@
   const IDS = {
     btnGenerate: "btnGenerate",
     loadingState: "loadingState",
+    autoRefreshStatus: "autoRefreshStatus",
     errorBox: "errorBox",
     latInput: "latInput",
     lonInput: "lonInput",
@@ -36,6 +37,7 @@
   };
 
   const warnedMissing = new Set();
+  let autoRefreshTimer = null;
 
   function $(id) {
     const el = document.getElementById(id);
@@ -68,6 +70,14 @@
       el.style.display = "none";
       el.textContent = "";
     }
+  }
+
+  function setAutoRefreshStatus(enabled) {
+    const el = $(IDS.autoRefreshStatus);
+    if (!el) return;
+    el.textContent = enabled
+      ? "Auto-refresh enabled (every 10m)"
+      : "Auto-refresh disabled";
   }
 
   function pick(obj, candidates, fallback = undefined) {
@@ -248,6 +258,10 @@
       const data = await res.json();
       console.log("Received brief JSON", data);
       renderAll(data);
+      if (!autoRefreshTimer) {
+        autoRefreshTimer = setInterval(fetchBrief, 600000);
+      }
+      setAutoRefreshStatus(true);
     } catch (err) {
       console.error("[AI-Assassins] generate failed:", err);
       setError(err?.message || String(err));
@@ -267,6 +281,7 @@
     } else {
       console.warn("[AI-Assassins] Missing #btnGenerate in DOM");
     }
+    setAutoRefreshStatus(Boolean(autoRefreshTimer));
   }
 
   if (document.readyState === "loading") {
