@@ -26,6 +26,7 @@
     loginEmail: "loginEmail",
     loginPassword: "loginPassword",
     btnSubscribe: "btnSubscribe",
+    btnExportPdf: "btnExportPdf",
     subscriptionBadge: "subscriptionBadge",
 
     overnightOverview: "overnightOverview",
@@ -411,6 +412,26 @@
     return data;
   }
 
+  async function exportPdf() {
+    const root = document.querySelector(".wrap");
+    if (!root) throw new Error("Unable to locate briefing content");
+
+    if (!window.html2pdf) {
+      throw new Error("PDF library unavailable");
+    }
+
+    await window.html2pdf()
+      .set({
+        margin: 8,
+        filename: `ai-assassins-brief-${new Date().toISOString().slice(0, 10)}.pdf`,
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: { scale: 2, backgroundColor: "#070b10" },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" }
+      })
+      .from(root)
+      .save();
+  }
+
   function wireUp() {
     const btn = $(IDS.btnGenerate);
     if (btn) {
@@ -459,6 +480,16 @@
           await refreshSubscriptionStatus();
         } catch (error) {
           setError(error.message || "Subscription failed");
+        }
+      });
+    }
+    const exportBtn = $(IDS.btnExportPdf);
+    if (exportBtn) {
+      exportBtn.addEventListener("click", async () => {
+        try {
+          await exportPdf();
+        } catch (error) {
+          setError(error.message || "PDF export failed");
         }
       });
     }
