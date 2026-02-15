@@ -1,7 +1,8 @@
 {
   "name": "AI Assassins \u2014 Daily Brief",
   "short_name": "AIA Brief",
-  "start_url": "./",
+  "start_url": "/Ai-Assassins/",
+  "scope": "/Ai-Assassins/",
   "display": "standalone",
   "background_color": "#0b0f13",
   "theme_color": "#0b0f13",

@@ -120,15 +120,36 @@ function formatMarket(v) {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function safeJsonParse(text) {
+  try {
+    return { ok: true, data: JSON.parse(text) };
+  } catch {
+    return { ok: false, error: "Response was not valid JSON" };
+  }
+}
+
+async function fetchWithTimeout(url, init, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return response;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchWeatherFallback(lat, lon) {
   if (!lat || !lon) return null;
   try {
     const url = new URL(`${API_BASE}/api/weather`);
     url.searchParams.set("lat", lat);
     url.searchParams.set("lon", lon);
-    const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+    const res = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json" } }, 12000);
     if (!res.ok) return null;
-    return await res.json();
+    const txt = await res.text();
+    const parsed = safeJsonParse(txt);
+    return parsed.ok ? parsed.data : null;
   } catch {
     return null;
   }
@@ -146,7 +167,7 @@ function renderBrief(data, fallbackWeather = null) {
   setText(IDS.wti, formatMarket(pick(markets, ["WTI", "wti"], "N/A")));
   setText(IDS.btc, formatMarket(pick(markets, ["BTC", "btc", "bitcoin"], "N/A")));
 
-  const weather = pick(data, ["weather_local", "weather"], {}) || {};
+  const weather = pick(data, ["weather_local", "weatherLocal", "weather"], {}) || {};
   const wx = Object.keys(weather).length ? weather : (fallbackWeather || {});
   const summary = pick(wx, ["summary"], "N/A");
   const high = pick(wx, ["high", "max"], "N/A");
@@ -185,30 +206,35 @@ function getInputs() {
 async function requestBrief({ lat, lon, focus, tone, icsUrl }) {
   const base = API_BASE.replace(/\/$/, "");
 
-  const getUrl = new URL(`${base}/brief`);
-  if (lat) getUrl.searchParams.set("lat", lat);
-  if (lon) getUrl.searchParams.set("lon", lon);
-  if (focus) getUrl.searchParams.set("focus", focus);
-  if (tone) getUrl.searchParams.set("tone", tone);
-  if (icsUrl) getUrl.searchParams.set("icsUrl", icsUrl);
-
-  console.log("[AI-Assassins] Fetching brief from URL:", getUrl.toString());
-  let res = await fetch(getUrl.toString(), { method: "GET", headers: { Accept: "application/json" } });
-  if (res.ok) return res.json();
-
   const postUrl = `${base}/api/brief`;
-  console.warn("[AI-Assassins] /brief failed, retrying /api/brief");
-  res = await fetch(postUrl, {
+  console.log("[AI-Assassins] POST /api/brief", postUrl);
+  let res = await fetchWithTimeout(postUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify({ lat: lat || null, lon: lon || null, focus: focus || null, tone: tone || null, icsUrl: icsUrl || null })
-  });
+  }, 12000);
 
   if (!res.ok) {
-    const txt = await res.text().catch(() => "");
+    const getUrl = new URL(`${base}/brief`);
+    if (lat) getUrl.searchParams.set("lat", lat);
+    if (lon) getUrl.searchParams.set("lon", lon);
+    if (focus) getUrl.searchParams.set("focus", focus);
+    if (tone) getUrl.searchParams.set("tone", tone);
+    if (icsUrl) getUrl.searchParams.set("icsUrl", icsUrl);
+
+    console.warn("[AI-Assassins] /api/brief failed, retrying GET /brief", getUrl.toString());
+    res = await fetchWithTimeout(getUrl.toString(), { method: "GET", headers: { Accept: "application/json" } }, 12000);
+  }
+
+  const txt = await res.text();
+  const parsed = safeJsonParse(txt);
+  if (!parsed.ok) {
+    throw new Error(`Brief request failed: ${parsed.error}`);
+  }
+  if (!res.ok) {
     throw new Error(`Brief request failed (${res.status}): ${txt}`);
   }
-  return res.json();
+  return parsed.data;
 }
 
 async function generateBrief() {
@@ -220,10 +246,12 @@ async function generateBrief() {
     console.log("[AI-Assassins] Received brief JSON", data);
 
     let weatherFallback = null;
-    if (!pick(data, ["weather_local", "weather"], null) && inputs.lat && inputs.lon) {
+    if (!pick(data, ["weather_local", "weatherLocal", "weather"], null) && inputs.lat && inputs.lon) {
       weatherFallback = await fetchWeatherFallback(inputs.lat, inputs.lon);
     }
+
     renderBrief(data, weatherFallback);
+
     if (!autoRefreshTimer) {
       autoRefreshTimer = setInterval(generateBrief, 600000);
       console.log("[AI-Assassins] Auto-refresh enabled (every 10m)");
@@ -245,4 +273,5 @@ window.addEventListener("DOMContentLoaded", () => {
     generateBrief();
   });
   setAutoRefreshStatus(Boolean(autoRefreshTimer));
+  generateBrief();
 });
