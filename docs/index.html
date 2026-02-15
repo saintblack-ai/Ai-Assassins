@@ -1,72 +1,200 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ARCHAIOS • Vault Interface</title>
-  <style>
-    body {
-      font-family: "Courier New", monospace;
-      background-color: #fafafa;
-      color: #000;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      height: 100vh;
-      margin: 0;
-    }
-    h1 {
-      font-size: 1.8rem;
-      margin-bottom: 10px;
-    }
-    #log {
-      width: 90%;
-      max-width: 700px;
-      height: 400px;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      padding: 10px;
-      overflow-y: auto;
-      background: #fff;
-      box-shadow: 0 0 5px rgba(0,0,0,0.1);
-    }
-    .input-row {
-      display: flex;
-      width: 90%;
-      max-width: 700px;
-      margin-top: 10px;
-    }
-    #input {
-      flex: 1;
-      padding: 10px;
-      font-size: 1rem;
-      border: 1px solid #ccc;
-      border-radius: 5px 0 0 5px;
-      outline: none;
-    }
-    #send {
-      background-color: #111;
-      color: #fff;
-      border: none;
-      border-radius: 0 5px 5px 0;
-      padding: 0 20px;
-      cursor: pointer;
-      font-size: 1rem;
-      transition: background 0.3s;
-    }
-    #send:hover {
-      background-color: #333;
-    }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Assassins - Daily Brief</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#0b0f13">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AIA Brief">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<style>
+:root{--bg:#0b0f13;--muted:#96a0ad;--text:#e8edf3;--border:#223041;--card:#0f141b;--brand:#8ab4f8}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto;background:var(--bg);color:var(--text)}
+header{position:sticky;top:0;background:#0b0f13f0;border-bottom:1px solid var(--border);backdrop-filter:saturate(1.2) blur(6px)}
+.wrap{max-width:1100px;margin:auto;padding:16px}
+.row{display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap}
+button{background:#1a2330;border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:10px}
+button:hover{border-color:#2f4159}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}
+.kvs{display:grid;grid-template-columns:1fr auto;gap:6px;font-variant-numeric:tabular-nums}
+.badge{font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:999px;color:var(--muted)}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+li{line-height:1.35}
+a{color:var(--brand);text-decoration:none}
+a:hover{text-decoration:underline}
+.small{color:var(--muted);font-size:12px}
+input,select,textarea{width:100%;background:#101823;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px}
+dialog{border:1px solid var(--border);border-radius:12px;background:#0f141b;color:var(--text);max-width:860px;width:90%}
+</style>
 </head>
 <body>
-  <h1>ARCHAIOS • Vault Interface</h1>
-  <div id="log"></div>
-  <div class="input-row">
-    <input id="input" type="text" placeholder="Ask Archaios..." />
-    <button id="send">Send</button>
+<header>
+  <div class="wrap">
+    <div class="row">
+      <div style="display:flex;gap:12px;align-items:center">
+        <img src="./icon-180.png" alt="AI Assassins logo" width="44" height="44" style="border-radius:10px;box-shadow:0 0 0 1px var(--border)">
+        <div>
+          <h1 style="margin:0;font-size:18px">AI Assassins - Daily Brief</h1>
+          <div id="subtitle" class="small"></div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="generate">Generate Brief</button>
+        <button id="save">Save</button>
+        <button id="export">Export</button>
+        <button id="print">Print</button>
+        <button id="openSettings">Settings</button>
+      </div>
+    </div>
   </div>
-  <script src="chatkit.js"></script>
+</header>
+
+<main class="wrap">
+  <div id="brief" class="grid" aria-live="polite"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:24px">
+    <h2>Saved Briefs</h2><span class="badge" id="saveCount">0 saved</span>
+  </div>
+  <div id="saved" class="grid"></div>
+</main>
+
+<dialog id="settingsDialog">
+  <div style="padding:14px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+    <strong>Brief Settings</strong><button id="closeSettings">X</button>
+  </div>
+  <div style="padding:16px" class="grid" id="settingsGrid"></div>
+  <div style="display:flex;justify-content:flex-end;gap:10px;padding:12px 16px;border-top:1px solid var(--border)">
+    <button id="reset">Reset</button><button id="saveSettings">Save Settings</button>
+  </div>
+</dialog>
+
+<script type="module" src="./integrations.js"></script>
+<script>
+const $=s=>document.querySelector(s); const now=()=>new Date().toLocaleString(undefined,{dateStyle:'full',timeStyle:'short'});
+const defaults={callsign:'Colonel',briefTime:'07:00',eveningTime:'19:00',focus:'geopolitics, defense, cyber, space, markets, weather',scripturePref:'kjv',priorities:'- Intelligence and operations review\n- Threat monitoring\n- Strategic planning',closing:'Honor. Discipline. Mercy. - ARCHAIOS Sentinel',latlon:'',newsApiKey:'',icsUrl:'',agendaCount:3};
+const load=()=>Object.assign({},defaults,JSON.parse(localStorage.getItem('aia_settings_v9')||'null')||{});
+const save=s=>localStorage.setItem('aia_settings_v9',JSON.stringify(s));
+const esc=s=>String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;');
+const isAnchor=s=>typeof s==='string' && /^\s*<a\s/i.test(s);
+
+function marketIdForLabel(label){
+  if(label==='S&P 500' || label==='SP500') return 'SP500';
+  if(label==='Nasdaq' || label==='NASDAQ') return 'NASDAQ';
+  if(label==='WTI') return 'WTI';
+  if(label==='BTC') return 'BTC';
+  return null;
+}
+
+function tpl(){
+  const s=load();
+  const d=new Date();
+  return {id:Date.now(),title:`Daily SitRep - ${d.toLocaleDateString()}`,generatedAt:d.toISOString(),sections:[
+    {key:'overview',title:'Overnight Overview',items:['Loading...']},
+    {key:'markets',title:'Markets Snapshot',kvs:[['S&P 500','-'],['Nasdaq','-'],['WTI','-'],['BTC','-']],note:'Auto-filled from API'},
+    {key:'weather',title:'Weather (Local)',items:['Set lat,lon in Settings'],note:'Uses Open-Meteo'},
+    {key:'calendar',title:'Next Up (Calendar)',items:['(Add ICS link in Settings)'],note:'Client-side ICS parse'},
+    {key:'scripture',title:'Scripture of the Day',items:['Loading...']},
+    {key:'priorities',title:'Mission Priorities',items:s.priorities.split('\n').filter(Boolean).map(x=>x.replace(/^\-\s*/,''))},
+    {key:'truthwave',title:'Black Phoenix Truthwave',items:['Loading...']},
+    {key:'tasks',title:'Top 5 Tasks',items:['-','-','-','-','-']},
+    {key:'closing',title:'Command Note',items:[`${s.callsign}, stay sharp. ${s.closing}`]}
+  ]};
+}
+
+function render(b){
+  const root=$('#brief');
+  root.innerHTML='';
+  b.sections.forEach(s=>{
+    const sec=document.createElement('section');
+    sec.className='card';
+    sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;
+    const body=sec.querySelector('.body');
+    if(s.kvs){
+      const kv=document.createElement('div'); kv.className='kvs';
+      s.kvs.forEach(([k,v])=>{
+        const keyCell=document.createElement('div'); keyCell.textContent=k;
+        const valCell=document.createElement('div');
+        const domId=marketIdForLabel(k);
+        if(domId) valCell.id=domId;
+        valCell.innerHTML=(v==='-'||v==='Unavailable')?'<span class="small">Unavailable</span>':esc(v);
+        kv.appendChild(keyCell); kv.appendChild(valCell);
+      });
+      body.appendChild(kv);
+    }else{
+      const ul=document.createElement('ul');
+      s.items.forEach(it=>{const li=document.createElement('li'); if(isAnchor(it)){li.innerHTML=it}else if(typeof it==='string'){li.innerHTML=esc(it)}else{li.textContent=String(it)} ul.appendChild(li)});
+      body.appendChild(ul);
+    }
+    root.appendChild(sec);
+  });
+}
+
+function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v9')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v9',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
+function showSaved(){const all=JSON.parse(localStorage.getItem('aia_briefs_v9')||'[]');$('#saveCount').textContent=`${all.length} saved`;const slot=$('#saved');slot.innerHTML='';all.forEach(b=>{const when=new Date(b.generatedAt).toLocaleString(undefined,{dateStyle:'medium',timeStyle:'short'});const card=document.createElement('div');card.className='card';card.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><strong>${esc(b.title)}</strong><span class='badge'>${when}</span></div>`;slot.appendChild(card)});}
+
+function settingsUI(){
+  const s=load(); const g=$('#settingsGrid'); g.innerHTML=''; g.style.display='grid'; g.style.gridTemplateColumns='1fr 1fr'; g.style.gap='10px';
+  g.insertAdjacentHTML('beforeend',`<label>Callsign<br><input id='callsign' value='${esc(s.callsign)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Morning Time<br><input id='briefTime' type='time' value='${esc(s.briefTime)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Evening Time<br><input id='eveningTime' type='time' value='${esc(s.eveningTime)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Focus<br><input id='focus' value='${esc(s.focus)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Scripture<br><select id='scripturePref'><option value='kjv' ${s.scripturePref==='kjv'?'selected':''}>KJV</option><option value='niv' ${s.scripturePref==='niv'?'selected':''}>NIV</option><option value='esv' ${s.scripturePref==='esv'?'selected':''}>ESV</option></select></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Open-Meteo (lat,lon)<br><input id='latlon' placeholder='29.7604,-95.3698' value='${esc(s.latlon)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Calendar ICS URL<br><input id='icsUrl' placeholder='https://.../calendar.ics' value='${esc(s.icsUrl)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Agenda items to show<br><input id='agendaCount' type='number' min='1' max='10' value='${esc(s.agendaCount)}'></label>`);
+  g.insertAdjacentHTML('beforeend',`<label>Standing Priorities<br><textarea id='priorities' rows='6'>${esc(s.priorities)}</textarea></label>`);
+}
+
+document.addEventListener('DOMContentLoaded', async ()=>{
+  $('#subtitle').textContent=now();
+  let b=tpl();
+  render(b);
+  showSaved();
+
+  try{ b=await window.AIA.fillLive(b, load()); render(b);}catch{}
+  if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js'); }
+
+  $('#generate').onclick=async()=>{
+    let d=tpl();
+    render(d);
+    try{ d=await window.AIA.fillLive(d, load()); }catch{}
+    try{ d=await window.AIA.generateBrief(d, load()); }catch{}
+    b=d;
+    render(b);
+  };
+
+  $('#save').onclick=()=>saveBrief(b);
+  $('#export').onclick=()=>{
+    const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v9')||'[]')};
+    const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+  };
+  $('#print').onclick=()=>window.print();
+
+  const dlg=$('#settingsDialog');
+  $('#openSettings').onclick=()=>{settingsUI(); dlg.showModal();};
+  $('#closeSettings').onclick=()=>dlg.close();
+  $('#reset').onclick=()=>{localStorage.removeItem('aia_settings_v9'); settingsUI();};
+  $('#saveSettings').onclick=()=>{
+    const s={
+      callsign:document.querySelector('#callsign').value.trim()||'Colonel',
+      briefTime:document.querySelector('#briefTime').value||'07:00',
+      eveningTime:document.querySelector('#eveningTime').value||'19:00',
+      focus:document.querySelector('#focus').value.trim(),
+      scripturePref:document.querySelector('#scripturePref').value,
+      priorities:document.querySelector('#priorities').value,
+      latlon:document.querySelector('#latlon').value.trim(),
+      icsUrl:document.querySelector('#icsUrl').value.trim(),
+      agendaCount:parseInt(document.querySelector('#agendaCount').value,10)||3
+    };
+    save(s);
+    dlg.close();
+  };
+});
+</script>
 </body>
 </html>
