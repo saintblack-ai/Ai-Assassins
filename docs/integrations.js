@@ -24,13 +24,11 @@ const IDS = {
   commandNote: "commandNote"
 };
 
+let refreshTimer = null;
+let isGenerating = false;
+
 function getNode(id) {
-  try {
-    return document.getElementById(id);
-  } catch (error) {
-    console.error(`DOM error for ${id}`, error);
-    return null;
-  }
+  return document.getElementById(id);
 }
 
 function setText(id, text) {
@@ -39,16 +37,39 @@ function setText(id, text) {
   node.textContent = text == null || text === "" ? "N/A" : String(text);
 }
 
-function setList(id, values) {
+function updateList(id, arr) {
   const node = getNode(id);
   if (!node) return;
   node.textContent = "";
-  const list = Array.isArray(values) && values.length ? values : ["N/A"];
-  for (const value of list) {
+  const list = Array.isArray(arr) && arr.length ? arr : ["N/A"];
+  for (const item of list) {
     const li = document.createElement("li");
-    li.textContent = String(value);
+    li.textContent = String(item);
     node.appendChild(li);
   }
+}
+
+function formatMarketValue(value) {
+  if (value == null || value === "") return "N/A";
+  if (typeof value === "number") return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  return String(value);
+}
+
+function updateMarkets(markets) {
+  setText(IDS.sp500, formatMarketValue(markets?.SP500));
+  setText(IDS.nasdaq, formatMarketValue(markets?.NASDAQ));
+  setText(IDS.wti, formatMarketValue(markets?.WTI));
+  setText(IDS.btc, formatMarketValue(markets?.BTC));
+}
+
+function updateWeather(weather) {
+  const summary = weather?.summary || "N/A";
+  const high = weather?.high ?? "N/A";
+  const low = weather?.low ?? "N/A";
+  const precip = weather?.precip ?? "N/A";
+  setText(IDS.weatherLocal, `${summary} | High: ${high} | Low: ${low} | Precip: ${precip}`);
 }
 
 function showError(message) {
@@ -97,14 +118,15 @@ async function detectCoordinates() {
       (position) => {
         const geoLat = position?.coords?.latitude;
         const geoLon = position?.coords?.longitude;
-        const latInput = getNode(IDS.latInput);
-        const lonInput = getNode(IDS.lonInput);
-        if (latInput && Number.isFinite(geoLat)) latInput.value = String(geoLat);
-        if (lonInput && Number.isFinite(geoLon)) lonInput.value = String(geoLon);
-        resolve({
-          lat: Number.isFinite(geoLat) ? geoLat : null,
-          lon: Number.isFinite(geoLon) ? geoLon : null
-        });
+        if (Number.isFinite(geoLat) && Number.isFinite(geoLon)) {
+          const latInput = getNode(IDS.latInput);
+          const lonInput = getNode(IDS.lonInput);
+          if (latInput) latInput.value = String(geoLat);
+          if (lonInput) lonInput.value = String(geoLon);
+          resolve({ lat: geoLat, lon: geoLon });
+          return;
+        }
+        resolve({ lat: null, lon: null });
       },
       () => resolve({ lat: null, lon: null }),
       { enableHighAccuracy: false, timeout: 7000, maximumAge: 600000 }
@@ -116,61 +138,49 @@ async function collectPayload() {
   const { lat, lon } = await detectCoordinates();
   const focus = getNode(IDS.focusInput)?.value?.trim() || null;
   const tone = getNode(IDS.toneInput)?.value?.trim() || null;
-
-  return {
-    lat,
-    lon,
-    focus,
-    tone
-  };
+  return { lat, lon, focus, tone };
 }
 
 function applyBrief(brief) {
-  setList(IDS.overnightOverview, brief?.overnight_overview);
-
-  const markets = brief?.markets_snapshot || {};
-  setText(IDS.sp500, markets.SP500);
-  setText(IDS.nasdaq, markets.NASDAQ);
-  setText(IDS.wti, markets.WTI);
-  setText(IDS.btc, markets.BTC);
-
-  const weather = brief?.weather_local || {};
-  const weatherSummary = [
-    weather.summary || "N/A",
-    `High: ${weather.high ?? "N/A"}`,
-    `Low: ${weather.low ?? "N/A"}`,
-    `Precip: ${weather.precip ?? "N/A"}`
-  ].join(" | ");
-  setText(IDS.weatherLocal, weatherSummary);
-
-  setList(IDS.calendarEvents, brief?.next_up_calendar);
+  updateList(IDS.overnightOverview, brief?.overnight_overview);
+  updateMarkets(brief?.markets_snapshot || {});
+  updateWeather(brief?.weather_local || {});
+  updateList(IDS.calendarEvents, brief?.next_up_calendar);
 
   const scripture = brief?.scripture_of_day || {};
-  setText(IDS.scriptureDay, `${scripture.ref || "N/A"} — ${scripture.text || "N/A"}`);
+  setText(IDS.scriptureDay, `${scripture.ref || "N/A"} — ${scripture.text || "N/A"} (${scripture.reflection || "N/A"})`);
 
-  setList(IDS.missionPriorities, brief?.mission_priorities);
+  updateList(IDS.missionPriorities, brief?.mission_priorities);
 
   const truthwave = brief?.truthwave || {};
   setText(IDS.truthwaveNarrative, truthwave.narrative);
   setText(IDS.truthwaveRisk, truthwave.risk_flag);
   setText(IDS.truthwaveCounter, truthwave.counter_psyop);
 
-  setList(IDS.topTasks, brief?.top_tasks);
+  updateList(IDS.topTasks, brief?.top_tasks);
   setText(IDS.commandNote, brief?.command_note);
 }
 
+function startAutoRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setInterval(() => {
+    generateBrief().catch((error) => console.error("Auto-refresh failed", error));
+  }, 600000);
+}
+
 async function generateBrief() {
+  if (isGenerating) return;
   if (!API_BASE || API_BASE.includes("REPLACE_ME")) {
     showError("API_BASE is not configured. Set API_BASE in docs/integrations.js.");
     return;
   }
 
+  isGenerating = true;
   clearError();
   setLoading(true);
 
   try {
     const payload = await collectPayload();
-
     const res = await fetch(`${API_BASE}/api/brief`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -184,16 +194,18 @@ async function generateBrief() {
 
     const data = await res.json();
     applyBrief(data);
+    startAutoRefresh();
   } catch (error) {
     console.error("Generate Brief failed", error);
     showError(error.message || "Failed to generate brief.");
   } finally {
     setLoading(false);
+    isGenerating = false;
   }
 }
 
 window.addEventListener("DOMContentLoaded", () => {
   const btn = getNode(IDS.btnGenerate);
-  if (btn) btn.addEventListener("click", generateBrief);
+  if (btn) btn.addEventListener("click", () => generateBrief());
   generateBrief();
 });
