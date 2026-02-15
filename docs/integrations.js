@@ -2,7 +2,7 @@ const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
 
 const IDS = {
   btnGenerate: "btnGenerate",
-  loadingState: "loadingState",
+  loading: "loading",
   errorBox: "errorBox",
   latInput: "latInput",
   lonInput: "lonInput",
@@ -67,7 +67,7 @@ function clearError() {
 
 function setLoading(isLoading) {
   const btn = getNode(IDS.btnGenerate);
-  const loading = getNode(IDS.loadingState);
+  const loading = getNode(IDS.loading);
 
   if (btn) {
     btn.disabled = isLoading;
