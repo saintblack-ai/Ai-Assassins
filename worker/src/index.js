@@ -128,9 +128,9 @@ async function buildBrief(input, env) {
 
 async function getMarkets() {
   const [sp500, nasdaq, wti, btc] = await Promise.all([
-    fetchYahooQuote("^GSPC"),
-    fetchYahooQuote("^IXIC"),
-    fetchWTI(),
+    fetchMarketValue("^GSPC", "^spx"),
+    fetchMarketValue("^IXIC", "^ixic"),
+    fetchMarketValue("CL=F", "cl.f"),
     fetchCoinGeckoBTC()
   ]);
 
@@ -141,6 +141,12 @@ async function getMarkets() {
     BTC: btc,
     ts: new Date().toISOString()
   };
+}
+
+async function fetchMarketValue(yahooSymbol, stooqSymbol) {
+  const yahoo = await fetchYahooQuote(yahooSymbol);
+  if (yahoo != null) return yahoo;
+  return fetchStooqClose(stooqSymbol);
 }
 
 async function fetchYahooQuote(symbol) {
@@ -162,8 +168,20 @@ async function fetchYahooQuote(symbol) {
   }
 }
 
-async function fetchWTI() {
-  return fetchYahooQuote("CL=F");
+async function fetchStooqClose(symbol) {
+  try {
+    const u = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const r = await fetch(u, { headers: { "User-Agent": "ai-assassins-api" } });
+    if (!r.ok) return null;
+    const text = await r.text();
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) return null;
+    const cols = lines[1].split(",");
+    const close = Number(cols[6]);
+    return Number.isFinite(close) ? close : null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchCoinGeckoBTC() {
