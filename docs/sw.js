@@ -1,4 +1,4 @@
-const CACHE_NAME = "aia-v10";
+const CACHE_NAME = "ai-assassins-v2";
 const CORE = [
   "./",
   "./index.html",
@@ -28,6 +28,12 @@ self.addEventListener("activate", (event) => {
 
 self.addEventListener("fetch", (event) => {
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        const cloned = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, cloned));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
