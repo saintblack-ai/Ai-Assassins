@@ -1,10 +1,9 @@
 name = "ai-assassins-api"
-main = "index.js"
+main = "src/index.js"
 compatibility_date = "2026-02-15"
 workers_dev = true
 
 [vars]
-ALLOWED_ORIGIN = "https://saintblack-ai.github.io"
 OPENAI_MODEL = "gpt-4.1-mini"
 
 [observability]
