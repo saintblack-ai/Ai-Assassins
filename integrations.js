@@ -1,6 +1,6 @@
 // v9 integrations — live hooks (best-effort CORS)
 window.AIA=(()=>{
-  const DEFAULT_MARKETS_WORKER_URL='https://archaios-proxy.quandrix357.workers.dev/markets';
+  const DEFAULT_MARKETS_WORKER_URL='https://archaios-proxy.quandrix357.workers.dev';
   const fill=async(b,s)=>{await Promise.allSettled([weather(b,s),marketsFromWorker(b,s),scripture(b,s),news(b,s),calendar(b,s)]);return b;};
   function sec(b,k){return b.sections.find(x=>x.key===k);}
 
@@ -21,7 +21,7 @@ window.AIA=(()=>{
       const r=await fetch(workerUrl);
       if(!r.ok) return;
       const j=await r.json();
-      const m=j?.markets||{};
+      const m=(j&&typeof j==='object')?(j.markets||j):{};
       const values={SP500:m.SP500??null,NASDAQ:m.NASDAQ??null,BTC:m.BTC??null};
       updateMarketsSection(b,values);
       updateMarketDom(values);
