@@ -1,85 +1,85 @@
-# AI Assassins App
+# AI Assassins Daily Brief
 
 ## What The App Does
-AI Assassins Daily Brief is a web app that generates and displays a daily intelligence-style briefing with:
-- Overnight headline overview
-- Market snapshot (SP500, NASDAQ, WTI, BTC)
-- Local weather summary
-- Next-up calendar items
-- Scripture and reflection
-- Mission priorities, truthwave, top tasks, and command note
+- Generates structured daily intelligence briefs via OpenAI.
+- Serves the UI from GitHub Pages.
+- Serves the API from a Cloudflare Worker.
 
-## Architecture
-- Frontend: GitHub Pages static app served from `docs/`
-- API: Cloudflare Worker (`worker/`) exposing `/api/*` endpoints
-- AI generation: OpenAI API called from Worker endpoint `POST /api/brief`
+The brief includes:
+- Overnight Overview
+- Markets Snapshot (S&P 500, NASDAQ, WTI, BTC)
+- Weather
+- Next Up Calendar
+- Scripture of the Day
+- Mission Priorities
+- Black Phoenix Truthwave
+- Top Tasks
+- Command Note
 
-Flow:
-1. Browser loads `docs/index.html`
-2. `docs/integrations.js` calls Worker endpoints for live data
-3. Clicking **Generate Brief** calls `POST /api/brief`
-4. Worker returns structured JSON, UI cards update in place
+## Technical Architecture
+- Frontend: static app on GitHub Pages (`main` branch root).
+- Backend: Cloudflare Worker (`/worker`) exposing `/api/*`.
+- AI: OpenAI API called from Worker using secret `OPENAI_API_KEY`.
 
-## Setup Steps
+Data flow:
+1. Browser loads `index.html` from Pages.
+2. `integrations.js` calls Worker endpoints (`/api/overview`, `/api/markets`, `/api/weather`, `/api/scripture`, `/api/brief`).
+3. Worker fetches public market/weather/RSS sources and calls OpenAI for structured brief generation.
+4. UI cards update with safe DOM helpers and graceful fallbacks.
+
+## Setup & Deployment
 ### 1) GitHub Pages
-1. GitHub repository settings -> Pages
+1. Go to repository Settings -> Pages.
 2. Set source to:
    - Branch: `main`
-   - Folder: `/docs`
-3. Save and wait for build
+   - Folder: `/(root)`
+3. Save and wait for build.
 
-### 2) Cloudflare Worker Deploy
-1. Install Wrangler CLI
-2. From repo root:
+### 2) Cloudflare Worker
+1. Open terminal:
    - `cd worker`
+2. Authenticate:
    - `wrangler login`
+3. Deploy:
    - `wrangler deploy`
-3. Set secret:
-   - `wrangler secret put OPENAI_API_KEY`
-4. Copy deployed URL, then edit `docs/integrations.js`:
-   - `const API_BASE = "https://ai-assassins-api.<SUBDOMAIN>.workers.dev";`
-   - Replace `<SUBDOMAIN>` with your actual Worker subdomain
 
-### 3) Verify Endpoints
+### 3) Set Secrets
+- Required:
+  - `wrangler secret put OPENAI_API_KEY`
+- Optional:
+  - `wrangler secret put BRIEF_BEARER_TOKEN` (protects `/api/brief`)
+
+### 4) Verify Endpoints
 - `GET /api/overview`
 - `GET /api/markets`
 - `GET /api/weather?lat=29.7604&lon=-95.3698`
 - `GET /api/scripture`
 - `POST /api/brief`
 
-## Pricing + Monetization Plan
+## Monetization Strategy
 ### Free Tier
-- 1 generated brief/day
-- Delayed or partial live data refresh
-- Basic saved briefs in local browser storage
+- 1 brief per day
+- Basic refresh cadence
+- Limited history and export options
 
-### Pro Tier (subscription)
-- Unlimited brief generation
-- Faster refresh cadence
-- Premium briefing modes (deeper analysis, custom templates)
-- Team/shared briefing exports
+### Pro Tier
+- Suggested price: **$7/month**
+- Unlimited briefs
+- Faster refresh and richer brief templates
+- Premium integrations and team features
 
-Suggested pricing:
-- Monthly: $9 to $19
-- Annual: $79 to $149
+### Usage Limits
+- Per-user or per-key rate limits on `/api/brief`
+- Daily generation quotas by plan
+- Burst control to cap abuse/cost spikes
 
-## Rate Limiting And Abuse Protection
-Implement at Worker layer:
-- IP-based rate limit (per minute + per day)
-- Request size limits for `/api/brief`
-- Optional signed token or API key for non-public access
-- Cache static upstream calls (`/api/overview`, `/api/markets`, `/api/weather`) for short TTL
+### Stripe Integration Notes
+- Use Stripe Checkout + Customer Portal for subscriptions
+- Store plan entitlement in a lightweight user store
+- Enforce plan limits at Worker layer before OpenAI calls
 
-## Privacy Notes
-- No sensitive personal data should be stored in Worker by default
-- Browser settings/saved briefs remain in localStorage on user device
-- Worker logs should avoid full user prompt storage where possible
-- Keep only operational telemetry: timestamp, endpoint, status code, latency
-
-## PWA / App Store Packaging Notes
-- App is installable as PWA from mobile and desktop browsers
-- Ensure `manifest.webmanifest`, icons, and `sw.js` are present under `docs/`
-- For App Store distribution, use a web wrapper approach (if desired):
-  - iOS wrapper (e.g., Capacitor)
-  - Android wrapper (e.g., Trusted Web Activity or Capacitor)
-- Keep app shell fully HTTPS and ensure offline strategy in `sw.js`
+### Logging / Analytics Suggestions
+- Track request count, status code, latency, and endpoint
+- Track generation success/failure rates and token usage buckets
+- Avoid storing sensitive prompt content in logs
+- Add dashboarding/alerts for cost, error spikes, and rate-limit triggers
