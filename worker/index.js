@@ -258,6 +258,15 @@ async function generateBrief(payload, env) {
   const focus = String(payload.focus).slice(0, 500);
   const audience = String(payload.audience).slice(0, 100);
   const tone = String(payload.tone).slice(0, 60);
+  const lat = payload.lat == null ? null : Number(payload.lat);
+  const lon = payload.lon == null ? null : Number(payload.lon);
+  const icsUrl = payload.ics_url ? String(payload.ics_url) : "";
+  const agendaCount = Number.isFinite(Number(payload.agenda_count)) ? Math.max(1, Math.min(10, Number(payload.agenda_count))) : 3;
+
+  const liveMarkets = await getMarkets();
+  const liveWeather = Number.isFinite(lat) && Number.isFinite(lon) ? await getWeather(lat, lon).catch(() => null) : null;
+  const liveCalendar = icsUrl ? await getUpcomingFromICS(icsUrl, agendaCount).catch(() => []) : [];
+  const liveScripture = getScripture();
 
   const schema = {
     name: "daily_brief",
@@ -334,7 +343,14 @@ async function generateBrief(payload, env) {
     "Output must strictly follow the JSON schema."
   ].join(" ");
 
-  const user = `Build a daily brief for ${audience}. Date: ${date}. Focus: ${focus}. Tone: ${tone}.`;
+  const user = [
+    `Build a daily brief for ${audience}. Date: ${date}. Focus: ${focus}. Tone: ${tone}.`,
+    "Use this live context as factual anchors:",
+    `Markets: ${JSON.stringify(liveMarkets)}`,
+    `Weather: ${JSON.stringify(liveWeather)}`,
+    `Calendar: ${JSON.stringify(liveCalendar)}`,
+    `Scripture: ${JSON.stringify(liveScripture)}`
+  ].join("\n");
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -363,33 +379,41 @@ async function generateBrief(payload, env) {
   if (!content) throw new Error("OpenAI response had no content");
 
   const parsed = JSON.parse(content);
-  return normalizeBriefPayload(parsed);
+  return normalizeBriefPayload(parsed, {
+    markets: liveMarkets,
+    weather: liveWeather,
+    calendar: liveCalendar,
+    scripture: liveScripture
+  });
 }
 
-function normalizeBriefPayload(input) {
+function normalizeBriefPayload(input, context) {
   const market = input?.markets_snapshot || {};
   const weather = input?.weather_local || {};
   const scripture = input?.scripture_of_day || {};
   const truthwave = input?.truthwave || {};
+  const fallbackWeather = summarizeWeather(context?.weather);
+  const fallbackScripture = context?.scripture || {};
+  const fallbackMarkets = context?.markets || {};
 
   return {
     overnight_overview: asStringArray(input?.overnight_overview, ["Unavailable"]),
     markets_snapshot: {
-      SP500: normalizeNumber(market.SP500),
-      NASDAQ: normalizeNumber(market.NASDAQ),
-      WTI: normalizeNumber(market.WTI),
-      BTC: normalizeNumber(market.BTC)
+      SP500: normalizeNumber(market.SP500) ?? normalizeNumber(fallbackMarkets.SP500),
+      NASDAQ: normalizeNumber(market.NASDAQ) ?? normalizeNumber(fallbackMarkets.NASDAQ),
+      WTI: normalizeNumber(market.WTI) ?? normalizeNumber(fallbackMarkets.WTI),
+      BTC: normalizeNumber(market.BTC) ?? normalizeNumber(fallbackMarkets.BTC)
     },
     weather_local: {
-      summary: String(weather.summary || "Unavailable"),
-      high_low: String(weather.high_low || "Unavailable"),
-      precipitation: String(weather.precipitation || "Unavailable")
+      summary: String(weather.summary || fallbackWeather.summary || "Unavailable"),
+      high_low: String(weather.high_low || fallbackWeather.high_low || "Unavailable"),
+      precipitation: String(weather.precipitation || fallbackWeather.precipitation || "Unavailable")
     },
-    next_up_calendar: asStringArray(input?.next_up_calendar, ["Unavailable"]),
+    next_up_calendar: asStringArray(input?.next_up_calendar, context?.calendar?.length ? context.calendar : ["Unavailable"]),
     scripture_of_day: {
-      reference: String(scripture.reference || "Unavailable"),
-      verse: String(scripture.verse || "Unavailable"),
-      reflection: String(scripture.reflection || "Unavailable")
+      reference: String(scripture.reference || fallbackScripture.reference || "Unavailable"),
+      verse: String(scripture.verse || fallbackScripture.text || "Unavailable"),
+      reflection: String(scripture.reflection || fallbackScripture.reflection || "Unavailable")
     },
     mission_priorities: asStringArray(input?.mission_priorities, ["Unavailable"]),
     truthwave: {
@@ -412,6 +436,78 @@ function normalizeNumber(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function summarizeWeather(weather) {
+  if (!weather || typeof weather !== "object") {
+    return { summary: "Unavailable", high_low: "Unavailable", precipitation: "Unavailable" };
+  }
+
+  const current = weather.current || {};
+  const daily = weather.daily || {};
+  return {
+    summary: `Current ${current.temperature_2m ?? "-"}°C, wind ${current.wind_speed_10m ?? "-"} km/h`,
+    high_low: `High ${daily.max ?? "-"}°C / Low ${daily.min ?? "-"}°C`,
+    precipitation: `${daily.precipitation_sum ?? "-"} mm`
+  };
+}
+
+async function getUpcomingFromICS(url, limit) {
+  const response = await fetch(url, { headers: { "User-Agent": "ai-assassins-api" } });
+  if (!response.ok) return [];
+  const text = await response.text();
+  const events = parseICS(text);
+  const now = new Date();
+  return events
+    .filter((event) => event.start && event.start > now)
+    .sort((a, b) => a.start - b.start)
+    .slice(0, limit)
+    .map((event) => formatCalendarEvent(event));
+}
+
+function parseICS(text) {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const unfolded = [];
+  let current = null;
+  for (const line of lines) {
+    if (line.startsWith(" ") || line.startsWith("\t")) unfolded[unfolded.length - 1] += line.slice(1);
+    else unfolded.push(line);
+  }
+
+  const events = [];
+  for (const line of unfolded) {
+    if (line.startsWith("BEGIN:VEVENT")) current = {};
+    else if (line.startsWith("END:VEVENT")) {
+      if (current) events.push(current);
+      current = null;
+    } else if (current) {
+      if (line.startsWith("SUMMARY:")) current.summary = line.slice(8).trim();
+      if (line.startsWith("LOCATION:")) current.location = line.slice(9).trim();
+      if (line.startsWith("DTSTART")) current.start = parseICSTime(line);
+      if (line.startsWith("DTEND")) current.end = parseICSTime(line);
+    }
+  }
+  return events;
+}
+
+function parseICSTime(line) {
+  const match = line.match(/:(\d{8}T\d{6}Z?)/);
+  if (!match) return null;
+  const raw = match[1];
+  if (raw.endsWith("Z")) return new Date(raw);
+  const y = Number(raw.slice(0, 4));
+  const m = Number(raw.slice(4, 6)) - 1;
+  const d = Number(raw.slice(6, 8));
+  const hh = Number(raw.slice(9, 11));
+  const mm = Number(raw.slice(11, 13));
+  const ss = Number(raw.slice(13, 15));
+  return new Date(y, m, d, hh, mm, ss);
+}
+
+function formatCalendarEvent(event) {
+  const day = new Intl.DateTimeFormat("en-US", { month: "short", day: "2-digit" }).format(event.start);
+  const start = new Intl.DateTimeFormat("en-US", { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(event.start);
+  return `${day} ${start} — ${event.summary || "(No title)"}${event.location ? ` @ ${event.location}` : ""}`;
+}
+
 function validateBriefRequest(payload) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     return { ok: false, error: "Body must be a JSON object" };
@@ -422,21 +518,18 @@ function validateBriefRequest(payload) {
   const audience = typeof payload.audience === "string" ? payload.audience.trim() : "";
   const tone = typeof payload.tone === "string" ? payload.tone.trim() : "";
 
-  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return { ok: false, error: "date must be YYYY-MM-DD" };
-  }
-  if (!focus) {
-    return { ok: false, error: "focus is required" };
-  }
-  if (!audience) {
-    return { ok: false, error: "audience is required" };
-  }
-  if (!tone) {
-    return { ok: false, error: "tone is required" };
-  }
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { ok: false, error: "date must be YYYY-MM-DD" };
+  if (!focus) return { ok: false, error: "focus is required" };
+  if (!audience) return { ok: false, error: "audience is required" };
+  if (!tone) return { ok: false, error: "tone is required" };
   if (focus.length > 500 || audience.length > 100 || tone.length > 60) {
     return { ok: false, error: "One or more fields exceed length limits" };
   }
+
+  if (payload.lat != null && !Number.isFinite(Number(payload.lat))) return { ok: false, error: "lat must be numeric when provided" };
+  if (payload.lon != null && !Number.isFinite(Number(payload.lon))) return { ok: false, error: "lon must be numeric when provided" };
+  if (payload.ics_url != null && typeof payload.ics_url !== "string") return { ok: false, error: "ics_url must be a string when provided" };
+  if (payload.agenda_count != null && !Number.isFinite(Number(payload.agenda_count))) return { ok: false, error: "agenda_count must be numeric when provided" };
 
   payload.date = date;
   payload.focus = focus;

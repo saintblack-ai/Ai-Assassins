@@ -22,11 +22,19 @@ window.AIA = (() => {
     syncDomFromBrief(brief);
 
     try {
+      const [lat, lon] = String(settings?.latlon || "")
+        .split(",")
+        .map((value) => parseFloat(value.trim()));
+
       const payload = {
         date: new Date().toISOString().slice(0, 10),
         focus: settings?.focus || "geopolitics, defense, cyber, space",
         audience: settings?.callsign || "Commander",
-        tone: "strategic"
+        tone: "strategic",
+        lat: Number.isFinite(lat) ? lat : null,
+        lon: Number.isFinite(lon) ? lon : null,
+        ics_url: settings?.icsUrl || "",
+        agenda_count: Number.isFinite(Number(settings?.agendaCount)) ? Number(settings.agendaCount) : 3
       };
 
       const data = await fetchJson(`${API_BASE}/api/brief`, {
