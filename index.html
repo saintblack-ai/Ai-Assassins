@@ -92,8 +92,25 @@ function tpl(){const s=load();const d=new Date();return{id:Date.now(),title:`Dai
   {key:'closing',title:'⚔️ Command Note',items:[`${s.callsign}, stay sharp. ${s.closing}`]}
 ]};}
 
+function domIdForMarket(label){
+  if(label==='S&P 500') return 'sp500';
+  if(label==='Nasdaq') return 'nasdaq';
+  if(label==='WTI') return 'wti';
+  if(label==='BTC') return 'btc';
+  return '';
+}
+function domIdForSection(key){
+  if(key==='overview') return 'overnightOverview';
+  if(key==='weather') return 'weatherLocal';
+  if(key==='calendar') return 'calendarEvents';
+  if(key==='scripture') return 'scriptureDay';
+  if(key==='priorities') return 'missionPriorities';
+  if(key==='truthwave') return 'truthwave';
+  if(key==='tasks') return 'topTasks';
+  return '';
+}
 // Renderer
-function render(b){const root=$('#brief');root.innerHTML='';b.sections.forEach(s=>{const sec=document.createElement('section');sec.className='card';sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;const body=sec.querySelector('.body');if(s.kvs){const kv=document.createElement('div');kv.className='kvs';s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k;const d=document.createElement('div');d.innerHTML=(v==='—')?'<span class="small">—</span>':esc(v);kv.appendChild(a);kv.appendChild(d)});body.appendChild(kv)}else{const ul=document.createElement('ul');s.items.forEach(it=>{const li=document.createElement('li');if(isAnchor(it)){li.innerHTML=it}else if(typeof it==='string'){li.innerHTML=esc(it)}else{li.textContent=String(it)}ul.appendChild(li)});body.appendChild(ul)}root.appendChild(sec)});}
+function render(b){const root=$('#brief');root.innerHTML='';b.sections.forEach(s=>{const sec=document.createElement('section');sec.className='card';sec.innerHTML=`<div style='display:flex;justify-content:space-between;align-items:center'><h3 style='margin:.2rem 0 .6rem 0'>${s.title}</h3>${s.note?`<span class='badge'>${s.note}</span>`:''}</div><div class='body'></div>`;const body=sec.querySelector('.body');if(s.kvs){const kv=document.createElement('div');kv.className='kvs';s.kvs.forEach(([k,v])=>{const a=document.createElement('div');a.textContent=k;const d=document.createElement('div');const id=domIdForMarket(k);if(id)d.id=id;d.innerHTML=(v==='—')?'<span class="small">—</span>':esc(v);kv.appendChild(a);kv.appendChild(d)});body.appendChild(kv)}else{const ul=document.createElement('ul');const sid=domIdForSection(s.key);if(sid)ul.id=sid;if(s.key==='closing'){const li=document.createElement('li');li.id='commandNote';const text=(s.items&&s.items[0])?s.items[0]:'—';li.innerHTML=esc(text);ul.appendChild(li)}else{s.items.forEach(it=>{const li=document.createElement('li');if(isAnchor(it)){li.innerHTML=it}else if(typeof it==='string'){li.innerHTML=esc(it)}else{li.textContent=String(it)}ul.appendChild(li)})}body.appendChild(ul)}root.appendChild(sec)});}
 
 // Saved briefs
 function saveBrief(b){const all=JSON.parse(localStorage.getItem('aia_briefs_v9')||'[]');all.unshift(b);localStorage.setItem('aia_briefs_v9',JSON.stringify(all));$('#saveCount').textContent=`${all.length} saved`;}
@@ -117,7 +134,7 @@ document.addEventListener('DOMContentLoaded', async ()=>{
   $('#subtitle').textContent=now(); let b=tpl(); render(b); showSaved();
   try{ b=await window.AIA.fillLive(b, load()); render(b);}catch{}
   if('serviceWorker' in navigator){ navigator.serviceWorker.register('./sw.js'); }
-  $('#generate').onclick=async()=>{let d=tpl(); render(d); try{ d=await window.AIA.fillLive(d, load()); render(d);}catch{}};
+  $('#generate').onclick=async()=>{let d=tpl(); render(d); try{ d=await window.AIA.fillLive(d, load()); }catch{} try{ d=await window.AIA.generateBrief(d, load()); }catch{} b=d; render(b);};
   $('#save').onclick=()=>saveBrief(b);
   $('#export').onclick=()=>{const data={settings:load(),briefs:JSON.parse(localStorage.getItem('aia_briefs_v9')||'[]')}; const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='ai-assassins-brief-export.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1500);};
   $('#print').onclick=()=>window.print();

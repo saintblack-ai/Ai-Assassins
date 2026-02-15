@@ -1,9 +1,16 @@
-const ALLOWED_ORIGIN = "https://saintblack-ai.github.io";
+const DEFAULT_ALLOWED_ORIGIN = "https://saintblack-ai.github.io";
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const corsHeaders = makeCorsHeaders(request.headers.get("Origin"));
+    const allowedOrigin = env.ALLOWED_ORIGIN || DEFAULT_ALLOWED_ORIGIN;
+    const requestOrigin = request.headers.get("Origin");
+
+    if (requestOrigin && requestOrigin !== allowedOrigin) {
+      return jsonResponse({ error: "Origin not allowed" }, 403, makeCorsHeaders(allowedOrigin));
+    }
+
+    const corsHeaders = makeCorsHeaders(allowedOrigin);
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: corsHeaders });
@@ -32,6 +39,10 @@ export default {
       }
 
       if (request.method === "POST" && url.pathname === "/api/brief") {
+        if (!isAuthorizedForBrief(request, env)) {
+          return jsonResponse({ error: "Unauthorized" }, 401, corsHeaders);
+        }
+
         const payload = await request.json().catch(() => ({}));
         const brief = await generateBrief(payload, env);
         return jsonResponse(brief, 200, corsHeaders);
@@ -48,10 +59,15 @@ export default {
   }
 };
 
+function isAuthorizedForBrief(request, env) {
+  if (!env.BRIEF_BEARER_TOKEN) return true;
+  const auth = request.headers.get("Authorization") || "";
+  return auth === `Bearer ${env.BRIEF_BEARER_TOKEN}`;
+}
+
 function makeCorsHeaders(origin) {
-  const resolvedOrigin = origin === ALLOWED_ORIGIN ? origin : ALLOWED_ORIGIN;
   return {
-    "Access-Control-Allow-Origin": resolvedOrigin,
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
     "Access-Control-Max-Age": "86400",
@@ -81,9 +97,7 @@ async function getOverview() {
 
   const items = [];
   for (const result of settled) {
-    if (result.status === "fulfilled") {
-      items.push(...result.value);
-    }
+    if (result.status === "fulfilled") items.push(...result.value);
   }
 
   return { items: items.slice(0, 5), timestamp: new Date().toISOString() };
@@ -98,18 +112,16 @@ function parseRss(xml, source, limit) {
     const itemXml = match[1];
     const title = decodeXml(readTag(itemXml, "title"));
     const link = decodeXml(readTag(itemXml, "link"));
-    if (title && link) {
-      output.push({ title, link, source });
-    }
+    if (title && link) output.push({ title, link, source });
   }
 
   return output;
 }
 
 function readTag(xml, tag) {
-  const m = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
-  if (!m) return "";
-  return m[1].replace(/^<!\[CDATA\[|\]\]>$/g, "").trim();
+  const match = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"));
+  if (!match) return "";
+  return match[1].replace(/^<!\[CDATA\[|\]\]>$/g, "").trim();
 }
 
 function decodeXml(text) {
@@ -122,27 +134,51 @@ function decodeXml(text) {
 }
 
 async function getMarkets() {
-  let btc = null;
-
-  try {
-    const response = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"
-    );
-    if (response.ok) {
-      const json = await response.json();
-      btc = json?.bitcoin?.usd ?? null;
-    }
-  } catch {
-    btc = null;
-  }
+  const [sp500, nasdaq, wti, btc] = await Promise.all([
+    fetchStooqClose("^spx"),
+    fetchStooqClose("^ixic"),
+    fetchStooqClose("cl.f"),
+    fetchBtcPrice()
+  ]);
 
   return {
-    SP500: null,
-    NASDAQ: null,
-    WTI: null,
+    SP500: sp500,
+    NASDAQ: nasdaq,
+    WTI: wti,
     BTC: btc,
     timestamp: new Date().toISOString()
   };
+}
+
+async function fetchStooqClose(symbol) {
+  try {
+    const url = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
+    const response = await fetch(url, { headers: { "User-Agent": "ai-assassins-api" } });
+    if (!response.ok) return null;
+
+    const text = await response.text();
+    const lines = text.trim().split("\n");
+    if (lines.length < 2) return null;
+
+    const parts = lines[1].split(",");
+    const closeIndex = 6;
+    const value = Number(parts[closeIndex]);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBtcPrice() {
+  try {
+    const response = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
+    if (!response.ok) return null;
+    const json = await response.json();
+    const value = Number(json?.bitcoin?.usd);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 async function getWeather(lat, lon) {
@@ -155,9 +191,7 @@ async function getWeather(lat, lon) {
   endpoint.searchParams.set("timezone", "auto");
 
   const response = await fetch(endpoint.toString());
-  if (!response.ok) {
-    throw new Error(`Open-Meteo failed: ${response.status}`);
-  }
+  if (!response.ok) throw new Error(`Open-Meteo failed: ${response.status}`);
 
   const json = await response.json();
   return {
@@ -208,31 +242,92 @@ function getScripture() {
 }
 
 async function generateBrief(payload, env) {
-  const date = payload?.date || new Date().toISOString().slice(0, 10);
-  const focus = payload?.focus || "geopolitics, defense, cyber, space";
-  const audience = payload?.audience || "Commander";
-  const tone = payload?.tone || "strategic";
-
   if (!env.OPENAI_API_KEY) {
     throw new Error("OPENAI_API_KEY is missing");
   }
 
+  const model = env.OPENAI_MODEL || "gpt-4o-mini";
+  const date = String(payload?.date || new Date().toISOString().slice(0, 10)).slice(0, 40);
+  const focus = String(payload?.focus || "geopolitics, defense, cyber, space").slice(0, 500);
+  const audience = String(payload?.audience || "Commander").slice(0, 100);
+  const tone = String(payload?.tone || "strategic").slice(0, 60);
+
+  const schema = {
+    name: "daily_brief",
+    strict: true,
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        overnight_overview: { type: "array", items: { type: "string" } },
+        markets_snapshot: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            SP500: { type: ["number", "null"] },
+            NASDAQ: { type: ["number", "null"] },
+            WTI: { type: ["number", "null"] },
+            BTC: { type: ["number", "null"] }
+          },
+          required: ["SP500", "NASDAQ", "WTI", "BTC"]
+        },
+        weather_local: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            summary: { type: "string" },
+            high_low: { type: "string" },
+            precipitation: { type: "string" }
+          },
+          required: ["summary", "high_low", "precipitation"]
+        },
+        next_up_calendar: { type: "array", items: { type: "string" } },
+        scripture_of_day: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            reference: { type: "string" },
+            verse: { type: "string" },
+            reflection: { type: "string" }
+          },
+          required: ["reference", "verse", "reflection"]
+        },
+        mission_priorities: { type: "array", items: { type: "string" } },
+        truthwave: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            narrative: { type: "string" },
+            risk_flag: { type: "string" },
+            counter_psyop: { type: "string" }
+          },
+          required: ["narrative", "risk_flag", "counter_psyop"]
+        },
+        top_tasks: { type: "array", items: { type: "string" } },
+        command_note: { type: "string" }
+      },
+      required: [
+        "overnight_overview",
+        "markets_snapshot",
+        "weather_local",
+        "next_up_calendar",
+        "scripture_of_day",
+        "mission_priorities",
+        "truthwave",
+        "top_tasks",
+        "command_note"
+      ]
+    }
+  };
+
   const system = [
-    "You generate daily operational briefs as JSON only.",
-    "Return valid JSON with keys:",
-    "overnight_overview (array of strings),",
-    "markets_snapshot (object with SP500, NASDAQ, WTI, BTC numbers or null),",
-    "weather_local (array of strings),",
-    "next_up_calendar (array of strings),",
-    "scripture_of_day (array of strings),",
-    "mission_priorities (array of strings),",
-    "truthwave (array of strings),",
-    "top_tasks (array of strings),",
-    "command_note (array of strings).",
-    "No markdown, no prose outside JSON."
+    "You are an operations brief generator.",
+    "Return concise factual content.",
+    "Never include markdown.",
+    "Output must strictly follow the JSON schema."
   ].join(" ");
 
-  const user = `Build a concise daily brief for ${audience}. Date: ${date}. Focus: ${focus}. Tone: ${tone}.`;
+  const user = `Build a daily brief for ${audience}. Date: ${date}. Focus: ${focus}. Tone: ${tone}.`;
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -241,13 +336,13 @@ async function generateBrief(payload, env) {
       Authorization: `Bearer ${env.OPENAI_API_KEY}`
     },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
-      response_format: { type: "json_object" },
+      model,
       messages: [
         { role: "system", content: system },
         { role: "user", content: user }
       ],
-      temperature: 0.4
+      response_format: { type: "json_schema", json_schema: schema },
+      temperature: 0.35
     })
   });
 
@@ -258,46 +353,54 @@ async function generateBrief(payload, env) {
 
   const completion = await response.json();
   const content = completion?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error("OpenAI response had no content");
-  }
+  if (!content) throw new Error("OpenAI response had no content");
 
   const parsed = JSON.parse(content);
   return normalizeBriefPayload(parsed);
 }
 
 function normalizeBriefPayload(input) {
-  const output = {
-    overnight_overview: toStringArray(input?.overnight_overview, ["Unavailable"]),
-    markets_snapshot: normalizeMarkets(input?.markets_snapshot),
-    weather_local: toStringArray(input?.weather_local, ["Unavailable"]),
-    next_up_calendar: toStringArray(input?.next_up_calendar, ["Unavailable"]),
-    scripture_of_day: toStringArray(input?.scripture_of_day, ["Unavailable"]),
-    mission_priorities: toStringArray(input?.mission_priorities, ["Unavailable"]),
-    truthwave: toStringArray(input?.truthwave, ["Unavailable"]),
-    top_tasks: toStringArray(input?.top_tasks, ["Unavailable"]),
-    command_note: toStringArray(input?.command_note, ["Unavailable"])
-  };
+  const market = input?.markets_snapshot || {};
+  const weather = input?.weather_local || {};
+  const scripture = input?.scripture_of_day || {};
+  const truthwave = input?.truthwave || {};
 
-  return output;
+  return {
+    overnight_overview: asStringArray(input?.overnight_overview, ["Unavailable"]),
+    markets_snapshot: {
+      SP500: normalizeNumber(market.SP500),
+      NASDAQ: normalizeNumber(market.NASDAQ),
+      WTI: normalizeNumber(market.WTI),
+      BTC: normalizeNumber(market.BTC)
+    },
+    weather_local: {
+      summary: String(weather.summary || "Unavailable"),
+      high_low: String(weather.high_low || "Unavailable"),
+      precipitation: String(weather.precipitation || "Unavailable")
+    },
+    next_up_calendar: asStringArray(input?.next_up_calendar, ["Unavailable"]),
+    scripture_of_day: {
+      reference: String(scripture.reference || "Unavailable"),
+      verse: String(scripture.verse || "Unavailable"),
+      reflection: String(scripture.reflection || "Unavailable")
+    },
+    mission_priorities: asStringArray(input?.mission_priorities, ["Unavailable"]),
+    truthwave: {
+      narrative: String(truthwave.narrative || "Unavailable"),
+      risk_flag: String(truthwave.risk_flag || "Unavailable"),
+      counter_psyop: String(truthwave.counter_psyop || "Unavailable")
+    },
+    top_tasks: asStringArray(input?.top_tasks, ["Unavailable"]),
+    command_note: String(input?.command_note || "Unavailable")
+  };
 }
 
-function toStringArray(value, fallback) {
+function asStringArray(value, fallback) {
   if (!Array.isArray(value) || !value.length) return fallback;
   return value.map((item) => String(item));
 }
 
-function normalizeMarkets(value) {
-  const source = value && typeof value === "object" ? value : {};
-  return {
-    SP500: normalizeNumber(source.SP500),
-    NASDAQ: normalizeNumber(source.NASDAQ),
-    WTI: normalizeNumber(source.WTI),
-    BTC: normalizeNumber(source.BTC)
-  };
-}
-
 function normalizeNumber(value) {
-  const num = Number(value);
-  return Number.isFinite(num) ? num : null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }

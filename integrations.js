@@ -1,128 +1,399 @@
-// v9 integrations — live hooks (best-effort CORS)
-window.AIA=(()=>{
-  const DEFAULT_MARKETS_WORKER_URL='https://archaios-proxy.quandrix357.workers.dev';
-  const fill=async(b,s)=>{await Promise.allSettled([weather(b,s),marketsFromWorker(b,s),scripture(b,s),news(b,s),calendar(b,s)]);return b;};
-  function sec(b,k){return b.sections.find(x=>x.key===k);}
+// AI Assassins integrations (root app)
+window.AIA = (() => {
+  const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+  const FALLBACK_TEXT = "Unavailable";
+  const FETCHING_TEXT = "Fetching...";
 
-  async function weather(b,s){
-    if(!s.latlon) return;
-    const [lat,lon]=(s.latlon||'').split(',').map(x=>parseFloat(x.trim()));
-    if([lat,lon].some(Number.isNaN)) return;
-    const r=await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min,precipitation_sum&forecast_days=1&timezone=auto`);
-    if(!r.ok) return;
-    const j=await r.json();
-    sec(b,'weather').items=[`High / Low: ${j.daily?.temperature_2m_max?.[0]??'—'}° / ${j.daily?.temperature_2m_min?.[0]??'—'}°`,`Precip: ${j.daily?.precipitation_sum?.[0]??'—'} mm`];
+  async function fillLive(brief, settings) {
+    await Promise.allSettled([
+      fetchOverview(brief),
+      fetchMarkets(brief),
+      fetchWeather(brief, settings),
+      fetchScripture(brief),
+      fillCalendar(brief, settings)
+    ]);
+    syncDomFromBrief(brief);
+    return brief;
   }
 
-  async function marketsFromWorker(b,s){
-    try{
-      const workerUrl=(s?.marketsWorkerUrl||s?.workerUrl||window.AIA_MARKETS_WORKER_URL||DEFAULT_MARKETS_WORKER_URL).trim();
-      if(!workerUrl) return;
-      const r=await fetch(workerUrl);
-      if(!r.ok) return;
-      const j=await r.json();
-      const m=(j&&typeof j==='object')?(j.markets||j):{};
-      const values={SP500:m.SP500??null,NASDAQ:m.NASDAQ??null,BTC:m.BTC??null};
-      updateMarketsSection(b,values);
-      updateMarketDom(values);
-    }catch{}
+  async function generateBrief(brief, settings) {
+    setLoadingState(brief);
+    syncDomFromBrief(brief);
+
+    try {
+      const payload = {
+        date: new Date().toISOString().slice(0, 10),
+        focus: settings?.focus || "geopolitics, defense, cyber, space",
+        audience: settings?.callsign || "Commander",
+        tone: "strategic"
+      };
+
+      const data = await fetchJson(`${API_BASE}/api/brief`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      applyBriefPayload(brief, data);
+    } catch (error) {
+      console.error("Generate brief failed:", error);
+      markUnavailable(brief, "overview");
+      markUnavailable(brief, "truthwave");
+      markUnavailable(brief, "tasks");
+      markUnavailable(brief, "closing");
+    }
+
+    syncDomFromBrief(brief);
+    return brief;
   }
 
-  function formatMoney(v){
-    return Number.isFinite(v) ? '$'+Number(v).toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+  function sec(brief, key) {
+    return brief.sections.find((section) => section.key === key);
   }
 
-  function updateMarketsSection(b,values){
-    const M=sec(b,'markets'); if(!M || !Array.isArray(M.kvs)) return;
-    const next=M.kvs.map(([name,val])=>{
-      if(name==='S&P 500' || name==='SP500') return ['S&P 500',formatMoney(values.SP500)];
-      if(name==='Nasdaq' || name==='NASDAQ') return ['Nasdaq',formatMoney(values.NASDAQ)];
-      if(name==='BTC') return ['BTC',formatMoney(values.BTC)];
-      return [name,val];
+  async function fetchJson(url, init) {
+    const response = await fetch(url, init);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  function money(value) {
+    return Number.isFinite(value)
+      ? `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+      : FALLBACK_TEXT;
+  }
+
+  function markUnavailable(brief, key) {
+    const section = sec(brief, key);
+    if (!section) return;
+    if (section.kvs) {
+      section.kvs = section.kvs.map(([name]) => [name, FALLBACK_TEXT]);
+      return;
+    }
+    section.items = [FALLBACK_TEXT];
+  }
+
+  function setLoadingState(brief) {
+    const keys = ["overview", "weather", "calendar", "scripture", "truthwave", "tasks", "closing"];
+    keys.forEach((key) => {
+      const section = sec(brief, key);
+      if (!section || section.kvs) return;
+      section.items = [FETCHING_TEXT];
     });
-    if(!next.find(r=>r[0]==='S&P 500')) next.push(['S&P 500',formatMoney(values.SP500)]);
-    if(!next.find(r=>r[0]==='Nasdaq')) next.push(['Nasdaq',formatMoney(values.NASDAQ)]);
-    if(!next.find(r=>r[0]==='BTC')) next.push(['BTC',formatMoney(values.BTC)]);
-    M.kvs=next;
-  }
 
-  function updateMarketDom(values){
-    const ids={SP500:values.SP500,NASDAQ:values.NASDAQ,BTC:values.BTC};
-    for(const [id,val] of Object.entries(ids)){
-      const el=document.getElementById(id);
-      if(el) el.textContent=formatMoney(val);
+    const markets = sec(brief, "markets");
+    if (markets && markets.kvs) {
+      markets.kvs = [
+        ["S&P 500", FETCHING_TEXT],
+        ["Nasdaq", FETCHING_TEXT],
+        ["WTI", FETCHING_TEXT],
+        ["BTC", FETCHING_TEXT]
+      ];
     }
   }
 
-  async function scripture(b,s){
-    const verses={kjv:[['Psalm 27:1','The LORD is my light and my salvation; whom shall I fear?'],['Isaiah 41:10','Fear thou not; for I am with thee...'],['John 14:27','Peace I leave with you, my peace I give unto you...']],
-                  niv:[['Psalm 27:1','The LORD is my light and my salvation— whom shall I fear?'],['Isaiah 41:10','So do not fear, for I am with you...'],['John 14:27','Peace I leave with you; my peace I give you...']],
-                  esv:[['Psalm 27:1','The LORD is my light and my salvation; whom shall I fear?'],['Isaiah 41:10','Fear not, for I am with you...'],['John 14:27','Peace I leave with you; my peace I give to you...']]};
-    const pref=(s.scripturePref||'kjv').toLowerCase(); const arr=verses[pref]||verses.kjv; const [ref,text]=arr[(new Date()).getDate()%arr.length];
-    sec(b,'scripture').items=[pref.toUpperCase()+' — '+ref,text,'Reflection: Courage under pressure; Christ steadies the mission.'];
+  async function fetchOverview(brief) {
+    const section = sec(brief, "overview");
+    if (!section) return;
+
+    try {
+      const data = await fetchJson(`${API_BASE}/api/overview`);
+      const items = Array.isArray(data?.items) ? data.items : [];
+      section.items = items.slice(0, 5).map((item) => {
+        const title = escapeHtml(item.title || "Untitled");
+        const link = item.link || "#";
+        const source = escapeHtml(item.source || "Source");
+        return `<a href="${link}" target="_blank" rel="noopener">${title} (${source})</a>`;
+      });
+      if (!section.items.length) section.items = [FALLBACK_TEXT];
+    } catch (error) {
+      console.error("Overview fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
+    }
   }
 
-  async function news(b,s){
-    const S=sec(b,'overview'); if(!S) return;
-    try{
-      if(s.newsApiKey){
-        const q=encodeURIComponent('geopolitics OR defense OR cyber OR space OR infrastructure');
-        const r=await fetch(`https://newsapi.org/v2/top-headlines?language=en&pageSize=6&q=${q}`, {headers:{'X-Api-Key':s.newsApiKey}});
-        if(r.ok){ const j=await r.json(); S.items=(j.articles||[]).slice(0,6).map(a=>`<a href="${a.url}" target="_blank" rel="noopener">${a.title}</a>`); return; }
+  async function fetchMarkets(brief) {
+    const section = sec(brief, "markets");
+    if (!section) return;
+
+    try {
+      const data = await fetchJson(`${API_BASE}/api/markets`);
+      const values = {
+        SP500: data?.SP500 ?? null,
+        NASDAQ: data?.NASDAQ ?? null,
+        WTI: data?.WTI ?? null,
+        BTC: data?.BTC ?? null
+      };
+      section.kvs = [
+        ["S&P 500", money(values.SP500)],
+        ["Nasdaq", money(values.NASDAQ)],
+        ["WTI", money(values.WTI)],
+        ["BTC", money(values.BTC)]
+      ];
+      updateMarketDom(values);
+    } catch (error) {
+      console.error("Markets fetch failed:", error);
+      section.kvs = [
+        ["S&P 500", FALLBACK_TEXT],
+        ["Nasdaq", FALLBACK_TEXT],
+        ["WTI", FALLBACK_TEXT],
+        ["BTC", FALLBACK_TEXT]
+      ];
+      updateMarketDom({ SP500: null, NASDAQ: null, WTI: null, BTC: null });
+    }
+  }
+
+  async function fetchWeather(brief, settings) {
+    const section = sec(brief, "weather");
+    if (!section) return;
+
+    const [lat, lon] = String(settings?.latlon || "")
+      .split(",")
+      .map((value) => parseFloat(value.trim()));
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      section.items = [FALLBACK_TEXT];
+      return;
+    }
+
+    try {
+      const data = await fetchJson(`${API_BASE}/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
+      const current = data?.current || {};
+      const daily = data?.daily || {};
+      section.items = [
+        `Current: ${current.temperature_2m ?? "-"}°C, wind ${current.wind_speed_10m ?? "-"} km/h`,
+        `High / Low: ${daily.max ?? "-"}°C / ${daily.min ?? "-"}°C`,
+        `Precip: ${daily.precipitation_sum ?? "-"} mm`
+      ];
+    } catch (error) {
+      console.error("Weather fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
+    }
+  }
+
+  async function fetchScripture(brief) {
+    const section = sec(brief, "scripture");
+    if (!section) return;
+
+    try {
+      const data = await fetchJson(`${API_BASE}/api/scripture`);
+      section.items = [
+        `${data?.translation || "KJV"} — ${data?.reference || ""}`,
+        data?.text || FALLBACK_TEXT,
+        `Reflection: ${data?.reflection || FALLBACK_TEXT}`
+      ];
+    } catch (error) {
+      console.error("Scripture fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
+    }
+  }
+
+  async function fillCalendar(brief, settings) {
+    const section = sec(brief, "calendar");
+    if (!section) return;
+
+    const url = String(settings?.icsUrl || "").trim();
+    if (!url) {
+      section.items = ["(Add ICS link in Settings)"];
+      return;
+    }
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        section.items = [FALLBACK_TEXT];
+        return;
       }
-      const feeds=['https://feeds.bbci.co.uk/news/world/rss.xml','https://www.defense.gov/Newsroom/News/RSS/','https://www.nasa.gov/news-release/feed/'];
-      const rs=await Promise.allSettled(feeds.map(f=>fetch('https://api.rss2json.com/v1/api.json?rss_url='+encodeURIComponent(f))));
-      const items=[];
-      for(const r of rs){
-        if(r.status==='fulfilled' && r.value.ok){
-          const j=await r.value.json();
-          for(const it of (j.items||[]).slice(0,2)){
-            items.push(`<a href="${it.link}" target="_blank" rel="noopener">${it.title}</a>`);
-          }
-        }
-      }
-      S.items = items.length?items:['(Add a NewsAPI key in Settings for richer headlines)'];
-    }catch{}
+
+      const text = await response.text();
+      const events = parseICS(text);
+      const now = new Date();
+      const limit = Number(settings?.agendaCount || 3);
+      const upcoming = events
+        .filter((event) => event.start && event.start > now)
+        .sort((a, b) => a.start - b.start)
+        .slice(0, limit);
+
+      section.items = upcoming.length ? upcoming.map(formatEvent) : [FALLBACK_TEXT];
+    } catch (error) {
+      console.error("Calendar fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
+    }
   }
 
-  async function calendar(b,s){
-    const url=s.icsUrl?.trim(); if(!url) return;
-    const S=sec(b,'calendar');
-    try{
-      const r=await fetch(url); if(!r.ok){ S.items=[`(Could not fetch ICS: ${r.status})`]; return; }
-      const text=await r.text(); const events=parseICS(text); const now=new Date();
-      const upcoming=events.filter(e=>e.start && e.start>now).sort((a,b)=>a.start-b.start).slice(0,s.agendaCount||3);
-      S.items = upcoming.length?upcoming.map(e=>fmtEvent(e)):['(No upcoming events found)'];
-    }catch{ S.items=['(Calendar blocked by CORS or invalid ICS URL)']; }
-  }
+  function parseICS(text) {
+    const lines = text.replace(/\r/g, "").split("\n");
+    const unfolded = [];
+    let current = null;
 
-  function fmtEvent(e){
-    const dt=new Intl.DateTimeFormat(undefined,{weekday:'short',hour:'2-digit',minute:'2-digit'});
-    const day=new Intl.DateTimeFormat(undefined,{month:'short',day:'2-digit'}).format(e.start);
-    const time=dt.format(e.start)+(e.end?'–'+new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit'}).format(e.end):'');
-    return `${day} ${time} — ${e.summary||'(No title)'}${e.location?' @ '+e.location:''}`;
-  }
+    for (const line of lines) {
+      if (line.startsWith(" ") || line.startsWith("\t")) unfolded[unfolded.length - 1] += line.slice(1);
+      else unfolded.push(line);
+    }
 
-  function parseICS(text){
-    const lines=text.replace(/\r/g,'').split('\n'); const events=[]; let cur=null;
-    const unfolded=[]; for(let i=0;i<lines.length;i++){ const line=lines[i]; if(line.startsWith(' ')||line.startsWith('\t')){ unfolded[unfolded.length-1]+=line.slice(1);} else { unfolded.push(line);} }
-    for(const ln of unfolded){
-      if(ln.startsWith('BEGIN:VEVENT')){ cur={}; }
-      else if(ln.startsWith('END:VEVENT')){ if(cur) events.push(cur); cur=null; }
-      else if(cur){
-        if(ln.startsWith('SUMMARY:')) cur.summary=ln.slice(8).trim();
-        else if(ln.startsWith('LOCATION:')) cur.location=ln.slice(9).trim();
-        else if(ln.startsWith('DTSTART')) cur.start=parseICSTime(ln);
-        else if(ln.startsWith('DTEND')) cur.end=parseICSTime(ln);
+    const events = [];
+    for (const line of unfolded) {
+      if (line.startsWith("BEGIN:VEVENT")) current = {};
+      else if (line.startsWith("END:VEVENT")) {
+        if (current) events.push(current);
+        current = null;
+      } else if (current) {
+        if (line.startsWith("SUMMARY:")) current.summary = line.slice(8).trim();
+        if (line.startsWith("LOCATION:")) current.location = line.slice(9).trim();
+        if (line.startsWith("DTSTART")) current.start = parseICSTime(line);
+        if (line.startsWith("DTEND")) current.end = parseICSTime(line);
       }
     }
     return events;
   }
-  function parseICSTime(ln){
-    const m=ln.match(/:(\d{8}T\d{6}Z?)/); if(!m) return null; const raw=m[1];
-    if(raw.endsWith('Z')) return new Date(raw);
-    const y=raw.slice(0,4), mo=raw.slice(4,6), d=raw.slice(6,8), hh=raw.slice(9,11), mm=raw.slice(11,13), ss=raw.slice(13,15);
-    return new Date(+y, +mo-1, +d, +hh, +mm, +ss);
+
+  function parseICSTime(line) {
+    const match = line.match(/:(\d{8}T\d{6}Z?)/);
+    if (!match) return null;
+    const raw = match[1];
+    if (raw.endsWith("Z")) return new Date(raw);
+
+    const y = Number(raw.slice(0, 4));
+    const mo = Number(raw.slice(4, 6)) - 1;
+    const d = Number(raw.slice(6, 8));
+    const hh = Number(raw.slice(9, 11));
+    const mm = Number(raw.slice(11, 13));
+    const ss = Number(raw.slice(13, 15));
+    return new Date(y, mo, d, hh, mm, ss);
   }
-  return { fillLive: fill };
+
+  function formatEvent(event) {
+    const day = new Intl.DateTimeFormat(undefined, { month: "short", day: "2-digit" }).format(event.start);
+    const start = new Intl.DateTimeFormat(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(event.start);
+    const end = event.end
+      ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(event.end)
+      : "";
+    return `${day} ${start}${end ? `-${end}` : ""} — ${event.summary || "(No title)"}${event.location ? ` @ ${event.location}` : ""}`;
+  }
+
+  function applyBriefPayload(brief, payload) {
+    const map = {
+      overnight_overview: "overview",
+      markets_snapshot: "markets",
+      weather_local: "weather",
+      next_up_calendar: "calendar",
+      scripture_of_day: "scripture",
+      mission_priorities: "priorities",
+      truthwave: "truthwave",
+      top_tasks: "tasks",
+      command_note: "closing"
+    };
+
+    for (const [sourceKey, targetKey] of Object.entries(map)) {
+      const section = sec(brief, targetKey);
+      if (!section) continue;
+
+      const value = payload?.[sourceKey];
+
+      if (targetKey === "markets") {
+        const m = value && typeof value === "object" ? value : {};
+        const values = {
+          SP500: normalizeNumber(m.SP500),
+          NASDAQ: normalizeNumber(m.NASDAQ),
+          WTI: normalizeNumber(m.WTI),
+          BTC: normalizeNumber(m.BTC)
+        };
+        section.kvs = [
+          ["S&P 500", money(values.SP500)],
+          ["Nasdaq", money(values.NASDAQ)],
+          ["WTI", money(values.WTI)],
+          ["BTC", money(values.BTC)]
+        ];
+        updateMarketDom(values);
+        continue;
+      }
+
+      if (Array.isArray(value)) {
+        section.items = value.length ? value.map((item) => String(item)) : [FALLBACK_TEXT];
+        continue;
+      }
+
+      if (value && typeof value === "object") {
+        section.items = Object.entries(value).map(([k, v]) => `${titleize(k)}: ${v ?? FALLBACK_TEXT}`);
+        continue;
+      }
+
+      if (typeof value === "string") {
+        section.items = [value || FALLBACK_TEXT];
+        continue;
+      }
+
+      section.items = [FALLBACK_TEXT];
+    }
+  }
+
+  function updateMarketDom(values) {
+    setNodeText(["sp500", "SP500"], money(values.SP500));
+    setNodeText(["nasdaq", "NASDAQ"], money(values.NASDAQ));
+    setNodeText(["wti", "WTI"], money(values.WTI));
+    setNodeText(["btc", "BTC"], money(values.BTC));
+  }
+
+  function syncDomFromBrief(brief) {
+    const overview = sec(brief, "overview");
+    const weather = sec(brief, "weather");
+    const calendar = sec(brief, "calendar");
+    const scripture = sec(brief, "scripture");
+    const priorities = sec(brief, "priorities");
+    const truthwave = sec(brief, "truthwave");
+    const tasks = sec(brief, "tasks");
+    const closing = sec(brief, "closing");
+
+    setNodeList("overnightOverview", overview?.items || [FALLBACK_TEXT]);
+    setNodeList("weatherLocal", weather?.items || [FALLBACK_TEXT]);
+    setNodeList("calendarEvents", calendar?.items || [FALLBACK_TEXT]);
+    setNodeList("scriptureDay", scripture?.items || [FALLBACK_TEXT]);
+    setNodeList("missionPriorities", priorities?.items || [FALLBACK_TEXT]);
+    setNodeList("truthwave", truthwave?.items || [FALLBACK_TEXT]);
+    setNodeList("topTasks", tasks?.items || [FALLBACK_TEXT]);
+    setNodeText("commandNote", (closing?.items && closing.items[0]) || FALLBACK_TEXT);
+  }
+
+  function setNodeText(ids, text) {
+    const arr = Array.isArray(ids) ? ids : [ids];
+    for (const id of arr) {
+      const node = document.getElementById(id);
+      if (node) node.textContent = text;
+    }
+  }
+
+  function setNodeList(id, values) {
+    const node = document.getElementById(id);
+    if (!node) return;
+    node.innerHTML = "";
+    const list = Array.isArray(values) && values.length ? values : [FALLBACK_TEXT];
+    for (const value of list) {
+      const li = document.createElement("li");
+      li.textContent = String(value);
+      node.appendChild(li);
+    }
+  }
+
+  function normalizeNumber(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function titleize(text) {
+    return String(text)
+      .replaceAll(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;");
+  }
+
+  return { API_BASE, fillLive, generateBrief };
 })();

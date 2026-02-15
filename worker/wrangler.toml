@@ -3,5 +3,9 @@ main = "index.js"
 compatibility_date = "2026-02-15"
 workers_dev = true
 
+[vars]
+ALLOWED_ORIGIN = "https://saintblack-ai.github.io"
+OPENAI_MODEL = "gpt-4o-mini"
+
 [observability]
 enabled = true
