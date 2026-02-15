@@ -1,18 +1,15 @@
 /* docs/integrations.js
    Robust renderer for GitHub Pages + Cloudflare Worker brief endpoint.
-   Fixes "N/A stuck" by normalizing response keys and forcing DOM updates.
 */
 
 (() => {
   "use strict";
 
-  // --- Config ---
   const DEFAULT_API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
   const API_BASE =
     (window.ATA_WORKER_URL && String(window.ATA_WORKER_URL).trim()) ||
     DEFAULT_API_BASE;
 
-  // --- DOM IDs (must match docs/index.html) ---
   const IDS = {
     btnGenerate: "btnGenerate",
     loadingState: "loadingState",
@@ -23,32 +20,38 @@
     toneInput: "toneInput",
 
     overnightOverview: "overnightOverview",
-
     sp500: "sp500",
     nasdaq: "nasdaq",
     wti: "wti",
     btc: "btc",
-
     weatherLocal: "weatherLocal",
     calendarEvents: "calendarEvents",
     scriptureDay: "scriptureDay",
-
     missionPriorities: "missionPriorities",
     truthwaveNarrative: "truthwaveNarrative",
     truthwaveRisk: "truthwaveRisk",
     truthwaveCounter: "truthwaveCounter",
     topTasks: "topTasks",
-    commandNote: "commandNote",
+    commandNote: "commandNote"
   };
 
-  const $ = (id) => document.getElementById(id);
+  const warnedMissing = new Set();
+
+  function $(id) {
+    const el = document.getElementById(id);
+    if (!el && !warnedMissing.has(id)) {
+      console.warn(`[AI-Assassins] Missing DOM element #${id}`);
+      warnedMissing.add(id);
+    }
+    return el;
+  }
 
   function setLoading(isLoading, msg) {
     const el = $(IDS.loadingState);
     if (!el) return;
     if (isLoading) {
       el.style.display = "block";
-      el.textContent = msg || "Loading…";
+      el.textContent = msg || "Loading...";
     } else {
       el.style.display = "none";
       el.textContent = "";
@@ -67,7 +70,6 @@
     }
   }
 
-  // Normalize keys (case-insensitive, supports a few alternate names)
   function pick(obj, candidates, fallback = undefined) {
     if (!obj || typeof obj !== "object") return fallback;
     const keys = Object.keys(obj);
@@ -80,7 +82,6 @@
   }
 
   function toListItems(value) {
-    // Accept array, string, or object-with-items
     if (!value) return ["N/A"];
     if (Array.isArray(value)) {
       const flat = value.flat().filter(Boolean).map(String);
@@ -93,7 +94,6 @@
         .filter(Boolean);
       return lines.length ? lines : ["N/A"];
     }
-    // object: try items / bullets / text
     const items = pick(value, ["items", "bullets"], null);
     if (items) return toListItems(items);
     const text = pick(value, ["text", "summary"], null);
@@ -116,8 +116,9 @@
   function renderText(elId, text) {
     const el = $(elId);
     if (!el) return;
-    el.textContent = text ? String(text) : "N/A";
-    el.classList.toggle("muted", !text || String(text).trim() === "" || String(text).trim() === "N/A");
+    const value = text == null || text === "" ? "N/A" : String(text);
+    el.textContent = value;
+    el.classList.toggle("muted", value === "N/A" || value === "—");
   }
 
   function fmtMoney(v) {
@@ -125,6 +126,13 @@
     const n = Number(v);
     if (!Number.isFinite(n)) return String(v);
     return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  }
+
+  function renderOverview(data) {
+    const ov =
+      pick(data, ["overnight_overview", "overview", "overnight"], null) ??
+      pick(data, ["headlines"], null);
+    renderList(IDS.overnightOverview, ov || ["N/A"]);
   }
 
   function renderMarkets(data) {
@@ -142,14 +150,12 @@
   }
 
   function renderWeather(data) {
-    const w =
-      pick(data, ["weather_local", "weather", "local_weather"], {}) || {};
+    const w = pick(data, ["weather_local", "weather", "local_weather"], {}) || {};
     const summary = pick(w, ["summary"], "N/A");
     const high = pick(w, ["high", "max", "hi"], "N/A");
     const low = pick(w, ["low", "min", "lo"], "N/A");
     const precip = pick(w, ["precip", "precipitation"], "N/A");
-    const out = `${summary} | High: ${high} | Low: ${low} | Precip: ${precip}`;
-    renderText(IDS.weatherLocal, out);
+    renderText(IDS.weatherLocal, `${summary} | High: ${high} | Low: ${low} | Precip: ${precip}`);
   }
 
   function renderCalendar(data) {
@@ -168,15 +174,11 @@
     renderText(IDS.scriptureDay, out || "N/A");
   }
 
-  function renderOverview(data) {
-    const ov =
-      pick(data, ["overnight_overview", "overview", "overnight"], null) ??
-      pick(data, ["headlines"], null);
-    renderList(IDS.overnightOverview, ov || ["N/A"]);
+  function renderMissionPriorities(data) {
+    renderList(IDS.missionPriorities, pick(data, ["mission_priorities", "priorities"], ["—"]));
   }
 
   function renderExtras(data) {
-    // Optional sections if present; won't break if missing
     const tw = pick(data, ["truthwave", "black_phoenix_truthwave"], {}) || {};
     renderText(IDS.truthwaveNarrative, pick(tw, ["narrative", "top_narrative"], "—"));
     renderText(IDS.truthwaveRisk, pick(tw, ["risk", "risk_flag"], "—"));
@@ -187,12 +189,13 @@
   }
 
   function renderAll(data) {
-    console.log("[AI-Assassins] brief response:", data);
+    console.log("Rendering overview, markets, weather, etc");
     renderOverview(data);
     renderMarkets(data);
     renderWeather(data);
     renderCalendar(data);
     renderScripture(data);
+    renderMissionPriorities(data);
     renderExtras(data);
   }
 
@@ -207,20 +210,35 @@
   async function fetchBrief() {
     const { lat, lon, focus, tone } = getInputs();
 
-    const url = new URL(API_BASE.replace(/\/$/, "") + "/brief");
+    const base = API_BASE.replace(/\/$/, "");
+    const url = new URL(`${base}/brief`);
     if (lat) url.searchParams.set("lat", lat);
     if (lon) url.searchParams.set("lon", lon);
     if (focus) url.searchParams.set("focus", focus);
     if (tone) url.searchParams.set("tone", tone);
 
     setError("");
-    setLoading(true, "Generating brief…");
+    setLoading(true, "Generating brief...");
+    console.log("Fetching brief from URL:", url.toString());
 
     try {
-      const res = await fetch(url.toString(), {
+      let res = await fetch(url.toString(), {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json" }
       });
+
+      if (!res.ok) {
+        const apiUrl = `${base}/api/brief`;
+        console.warn("[AI-Assassins] /brief failed, retrying via /api/brief");
+        res = await fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json"
+          },
+          body: JSON.stringify({ lat: lat || null, lon: lon || null, focus: focus || null, tone: tone || null })
+        });
+      }
 
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
@@ -228,6 +246,7 @@
       }
 
       const data = await res.json();
+      console.log("Received brief JSON", data);
       renderAll(data);
     } catch (err) {
       console.error("[AI-Assassins] generate failed:", err);
@@ -242,14 +261,12 @@
     if (btn) {
       btn.addEventListener("click", (e) => {
         e.preventDefault();
+        console.log("Clicked generate");
         fetchBrief();
       });
     } else {
       console.warn("[AI-Assassins] Missing #btnGenerate in DOM");
     }
-
-    // Optional: auto-run once on load
-    // fetchBrief();
   }
 
   if (document.readyState === "loading") {
