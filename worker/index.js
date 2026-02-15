@@ -43,7 +43,12 @@ export default {
           return jsonResponse({ error: "Unauthorized" }, 401, corsHeaders);
         }
 
-        const payload = await request.json().catch(() => ({}));
+        const payload = await request.json().catch(() => null);
+        const validation = validateBriefRequest(payload);
+        if (!validation.ok) {
+          return jsonResponse({ error: "Invalid request body", detail: validation.error }, 400, corsHeaders);
+        }
+
         const brief = await generateBrief(payload, env);
         return jsonResponse(brief, 200, corsHeaders);
       }
@@ -70,7 +75,9 @@ function makeCorsHeaders(origin) {
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Expose-Headers": "Content-Type",
     "Access-Control-Max-Age": "86400",
+    Vary: "Origin",
     "Content-Type": "application/json; charset=utf-8"
   };
 }
@@ -246,11 +253,11 @@ async function generateBrief(payload, env) {
     throw new Error("OPENAI_API_KEY is missing");
   }
 
-  const model = env.OPENAI_MODEL || "gpt-4o-mini";
-  const date = String(payload?.date || new Date().toISOString().slice(0, 10)).slice(0, 40);
-  const focus = String(payload?.focus || "geopolitics, defense, cyber, space").slice(0, 500);
-  const audience = String(payload?.audience || "Commander").slice(0, 100);
-  const tone = String(payload?.tone || "strategic").slice(0, 60);
+  const model = env.OPENAI_MODEL || "gpt-4.1-mini";
+  const date = String(payload.date).slice(0, 40);
+  const focus = String(payload.focus).slice(0, 500);
+  const audience = String(payload.audience).slice(0, 100);
+  const tone = String(payload.tone).slice(0, 60);
 
   const schema = {
     name: "daily_brief",
@@ -403,4 +410,37 @@ function asStringArray(value, fallback) {
 function normalizeNumber(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
+}
+
+function validateBriefRequest(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return { ok: false, error: "Body must be a JSON object" };
+  }
+
+  const date = typeof payload.date === "string" ? payload.date.trim() : "";
+  const focus = typeof payload.focus === "string" ? payload.focus.trim() : "";
+  const audience = typeof payload.audience === "string" ? payload.audience.trim() : "";
+  const tone = typeof payload.tone === "string" ? payload.tone.trim() : "";
+
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return { ok: false, error: "date must be YYYY-MM-DD" };
+  }
+  if (!focus) {
+    return { ok: false, error: "focus is required" };
+  }
+  if (!audience) {
+    return { ok: false, error: "audience is required" };
+  }
+  if (!tone) {
+    return { ok: false, error: "tone is required" };
+  }
+  if (focus.length > 500 || audience.length > 100 || tone.length > 60) {
+    return { ok: false, error: "One or more fields exceed length limits" };
+  }
+
+  payload.date = date;
+  payload.focus = focus;
+  payload.audience = audience;
+  payload.tone = tone;
+  return { ok: true };
 }

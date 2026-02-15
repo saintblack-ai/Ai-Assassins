@@ -35,6 +35,7 @@ window.AIA = (() => {
       });
 
       applyBriefPayload(brief, data);
+      applyDirectDomPayload(data);
     } catch (error) {
       console.error("Generate brief failed:", error);
       markUnavailable(brief, "overview");
@@ -44,6 +45,7 @@ window.AIA = (() => {
     }
 
     syncDomFromBrief(brief);
+    hideLoadingState();
     return brief;
   }
 
@@ -372,6 +374,56 @@ window.AIA = (() => {
       li.textContent = String(value);
       node.appendChild(li);
     }
+  }
+
+  function updateCard(selector, value) {
+    const node = document.querySelector(selector);
+    if (!node) return;
+
+    if (Array.isArray(value)) {
+      node.innerHTML = "";
+      const list = value.length ? value : [FALLBACK_TEXT];
+      for (const item of list) {
+        const li = document.createElement("li");
+        li.textContent = String(item);
+        node.appendChild(li);
+      }
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      const lines = Object.entries(value).map(([k, v]) => `${titleize(k)}: ${v ?? FALLBACK_TEXT}`);
+      node.textContent = lines.length ? lines.join(" | ") : FALLBACK_TEXT;
+      return;
+    }
+
+    node.textContent = value == null || value === "" ? FALLBACK_TEXT : String(value);
+  }
+
+  function applyDirectDomPayload(data) {
+    const markets = data?.markets_snapshot || {};
+    const calendarEvents = data?.calendar_events || data?.next_up_calendar || [];
+    const scripture = data?.scripture_of_day || {};
+    const scriptureRef = scripture.ref || scripture.reference || FALLBACK_TEXT;
+    const scriptureText = scripture.text || scripture.verse || FALLBACK_TEXT;
+
+    updateCard("#overnightOverview", data?.overnight_overview || []);
+    updateCard("#sp500", markets.SP500);
+    updateCard("#nasdaq", markets.NASDAQ);
+    updateCard("#wti", markets.WTI);
+    updateCard("#btc", markets.BTC);
+    updateCard("#weatherLocal", data?.weather_local?.summary || data?.weather_local);
+    updateCard("#calendarEvents", calendarEvents);
+    updateCard("#scriptureDay", `${scriptureRef} — ${scriptureText}`);
+    updateCard("#missionPriorities", data?.mission_priorities || []);
+    updateCard("#truthwave", data?.truthwave || FALLBACK_TEXT);
+    updateCard("#topTasks", data?.top_tasks || []);
+    updateCard("#commandNote", data?.command_note || FALLBACK_TEXT);
+  }
+
+  function hideLoadingState() {
+    const generateButton = document.getElementById("generate");
+    if (generateButton) generateButton.disabled = false;
   }
 
   function normalizeNumber(value) {
