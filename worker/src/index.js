@@ -128,9 +128,9 @@ async function buildBrief(input, env) {
 
 async function getMarkets() {
   const [sp500, nasdaq, wti, btc] = await Promise.all([
-    fetchStooqClose("^spx"),
-    fetchStooqClose("^ixic"),
-    fetchStooqClose("cl.f"),
+    fetchYahooQuote("^GSPC"),
+    fetchYahooQuote("^IXIC"),
+    fetchWTI(),
     fetchCoinGeckoBTC()
   ]);
 
@@ -143,20 +143,27 @@ async function getMarkets() {
   };
 }
 
-async function fetchStooqClose(symbol) {
+async function fetchYahooQuote(symbol) {
   try {
-    const u = `https://stooq.com/q/l/?s=${encodeURIComponent(symbol)}&f=sd2t2ohlcv&h&e=csv`;
-    const r = await fetch(u, { headers: { "User-Agent": "ai-assassins-api" } });
+    const u = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(symbol)}`;
+    const r = await fetch(u, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "ai-assassins-api"
+      }
+    });
     if (!r.ok) return null;
-    const text = await r.text();
-    const lines = text.trim().split("\n");
-    if (lines.length < 2) return null;
-    const cols = lines[1].split(",");
-    const close = Number(cols[6]);
-    return Number.isFinite(close) ? close : null;
+    const j = await r.json();
+    const quote = j?.quoteResponse?.result?.[0];
+    const price = Number(quote?.regularMarketPrice);
+    return Number.isFinite(price) ? price : null;
   } catch {
     return null;
   }
+}
+
+async function fetchWTI() {
+  return fetchYahooQuote("CL=F");
 }
 
 async function fetchCoinGeckoBTC() {
