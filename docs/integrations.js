@@ -19,6 +19,7 @@
     lonInput: "lonInput",
     focusInput: "focusInput",
     toneInput: "toneInput",
+    icsInput: "icsInput",
 
     overnightOverview: "overnightOverview",
     sp500: "sp500",
@@ -40,6 +41,7 @@
 
   const warnedMissing = new Set();
   let autoRefreshTimer = null;
+  const ICS_STORAGE_KEY = "aia_ics_url";
 
   function $(id) {
     const el = document.getElementById(id);
@@ -266,11 +268,12 @@
     const lon = $(IDS.lonInput)?.value?.trim() || "";
     const focus = $(IDS.focusInput)?.value?.trim() || "";
     const tone = $(IDS.toneInput)?.value?.trim() || "";
-    return { lat, lon, focus, tone };
+    const icsUrl = $(IDS.icsInput)?.value?.trim() || "";
+    return { lat, lon, focus, tone, icsUrl };
   }
 
   async function fetchBrief() {
-    const { lat, lon, focus, tone } = getInputs();
+    const { lat, lon, focus, tone, icsUrl } = getInputs();
 
     const base = API_BASE.replace(/\/$/, "");
     const url = new URL(`${base}/brief`);
@@ -278,6 +281,7 @@
     if (lon) url.searchParams.set("lon", lon);
     if (focus) url.searchParams.set("focus", focus);
     if (tone) url.searchParams.set("tone", tone);
+    if (icsUrl) url.searchParams.set("icsUrl", icsUrl);
 
     setError("");
     setLoading(true, "Generating brief...");
@@ -298,7 +302,13 @@
             "Content-Type": "application/json",
             Accept: "application/json"
           },
-          body: JSON.stringify({ lat: lat || null, lon: lon || null, focus: focus || null, tone: tone || null })
+          body: JSON.stringify({
+            lat: lat || null,
+            lon: lon || null,
+            focus: focus || null,
+            tone: tone || null,
+            icsUrl: icsUrl || null
+          })
         });
       }
 
@@ -333,6 +343,13 @@
       });
     } else {
       console.warn("[AI-Assassins] Missing #btnGenerate in DOM");
+    }
+    const icsInput = $(IDS.icsInput);
+    if (icsInput) {
+      icsInput.value = localStorage.getItem(ICS_STORAGE_KEY) || "";
+      icsInput.addEventListener("change", () => {
+        localStorage.setItem(ICS_STORAGE_KEY, icsInput.value.trim());
+      });
     }
     setAutoRefreshStatus(Boolean(autoRefreshTimer));
     loadBriefHistory();
