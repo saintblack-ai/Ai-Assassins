@@ -1,4 +1,4 @@
-const API_BASE = "https://REPLACE_ME.workers.dev";
+const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
 
 const IDS = {
   btnGenerate: "btnGenerate",
