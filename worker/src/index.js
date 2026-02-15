@@ -59,6 +59,8 @@ const WEATHER_CODE_MAP = {
   99: "Thunderstorm with heavy hail"
 };
 
+const IN_MEMORY_BRIEFS = new Map();
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -89,6 +91,26 @@ export default {
         return json(getScripture());
       }
 
+      if (request.method === "GET" && url.pathname === "/briefs") {
+        const items = await listBriefs(env, 50);
+        return json({ items });
+      }
+
+      if (request.method === "GET" && url.pathname === "/brief") {
+        const id = url.searchParams.get("id");
+        if (id) {
+          const stored = await getBriefById(env, id);
+          if (!stored) return json({ error: "Brief not found" }, 404);
+          return json(stored);
+        }
+
+        const validated = validateBriefQuery(url.searchParams);
+        if (!validated.ok) return json({ error: validated.error }, 400);
+        const brief = await buildBrief(validated.value, env);
+        const saved = await saveBrief(env, brief);
+        return json({ id: saved.id, ...brief });
+      }
+
       if (request.method === "POST" && url.pathname === "/api/brief") {
         const body = await request.json().catch(() => null);
         const validated = validateBriefBody(body);
@@ -97,7 +119,8 @@ export default {
         }
 
         const brief = await buildBrief(validated.value, env);
-        return json(brief);
+        const saved = await saveBrief(env, brief);
+        return json({ id: saved.id, ...brief });
       }
 
       return json({ error: "Not found" }, 404);
@@ -140,6 +163,16 @@ function validateBriefBody(body) {
       icsUrl
     }
   };
+}
+
+function validateBriefQuery(params) {
+  return validateBriefBody({
+    lat: params.get("lat"),
+    lon: params.get("lon"),
+    focus: params.get("focus"),
+    tone: params.get("tone"),
+    icsUrl: params.get("icsUrl") || params.get("ics_url")
+  });
 }
 
 async function buildBrief(input, env) {
@@ -277,6 +310,67 @@ function weatherFallback() {
     low: "N/A",
     precip: "N/A"
   };
+}
+
+async function saveBrief(env, brief) {
+  const id = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+  const payload = JSON.stringify(brief);
+
+  if (env.BRIEFS_DB) {
+    await ensureBriefTables(env);
+    await env.BRIEFS_DB
+      .prepare("INSERT INTO briefs (id, timestamp, json) VALUES (?1, ?2, ?3)")
+      .bind(id, timestamp, payload)
+      .run();
+  } else {
+    IN_MEMORY_BRIEFS.set(id, { id, timestamp, json: payload });
+  }
+
+  return { id, timestamp };
+}
+
+async function getBriefById(env, id) {
+  if (!id) return null;
+
+  if (env.BRIEFS_DB) {
+    await ensureBriefTables(env);
+    const row = await env.BRIEFS_DB
+      .prepare("SELECT id, timestamp, json FROM briefs WHERE id = ?1")
+      .bind(id)
+      .first();
+    if (!row) return null;
+    return { id: row.id, timestamp: row.timestamp, ...JSON.parse(row.json) };
+  }
+
+  const row = IN_MEMORY_BRIEFS.get(id);
+  if (!row) return null;
+  return { id: row.id, timestamp: row.timestamp, ...JSON.parse(row.json) };
+}
+
+async function listBriefs(env, limit) {
+  if (env.BRIEFS_DB) {
+    await ensureBriefTables(env);
+    const res = await env.BRIEFS_DB
+      .prepare("SELECT id, timestamp FROM briefs ORDER BY timestamp DESC LIMIT ?1")
+      .bind(limit)
+      .all();
+    return Array.isArray(res?.results) ? res.results : [];
+  }
+
+  return Array.from(IN_MEMORY_BRIEFS.entries())
+    .map(([id, row]) => ({ id, timestamp: row.timestamp }))
+    .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
+    .slice(0, limit);
+}
+
+let briefTableReady = false;
+async function ensureBriefTables(env) {
+  if (briefTableReady || !env.BRIEFS_DB) return;
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS briefs (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, json TEXT NOT NULL);"
+  );
+  briefTableReady = true;
 }
 
 function getScripture() {
