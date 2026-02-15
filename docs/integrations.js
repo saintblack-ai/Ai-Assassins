@@ -25,6 +25,8 @@
     loginForm: "loginForm",
     loginEmail: "loginEmail",
     loginPassword: "loginPassword",
+    btnSubscribe: "btnSubscribe",
+    subscriptionBadge: "subscriptionBadge",
 
     overnightOverview: "overnightOverview",
     sp500: "sp500",
@@ -48,6 +50,7 @@
   let autoRefreshTimer = null;
   const ICS_STORAGE_KEY = "aia_ics_url";
   const AUTH_TOKEN_KEY = "aia_auth_token";
+  const CUSTOMER_ID_KEY = "aia_customer_id";
 
   function $(id) {
     const el = document.getElementById(id);
@@ -359,6 +362,55 @@
     return data;
   }
 
+  function setPremiumVisibility(isPro) {
+    const premiumNodes = document.querySelectorAll("[data-premium='true']");
+    for (const node of premiumNodes) {
+      node.style.display = isPro ? "" : "none";
+    }
+    const badge = $(IDS.subscriptionBadge);
+    if (badge) badge.textContent = isPro ? "Tier: Pro" : "Tier: Free";
+  }
+
+  async function refreshSubscriptionStatus() {
+    const customerId = localStorage.getItem(CUSTOMER_ID_KEY) || "";
+    if (!customerId) {
+      setPremiumVisibility(false);
+      return;
+    }
+    try {
+      const base = API_BASE.replace(/\/$/, "");
+      const res = await fetch(`${base}/status?customer_id=${encodeURIComponent(customerId)}`, {
+        headers: { Accept: "application/json" }
+      });
+      if (!res.ok) throw new Error("Status unavailable");
+      const data = await res.json();
+      setPremiumVisibility(data?.tier === "pro");
+    } catch (error) {
+      console.warn("[AI-Assassins] subscription status check failed", error);
+      setPremiumVisibility(false);
+    }
+  }
+
+  async function createSubscription() {
+    const email = prompt("Enter billing email:");
+    if (!email) return;
+    const priceId = prompt("Enter Stripe Price ID (e.g. price_...):");
+    if (!priceId) return;
+    const base = API_BASE.replace(/\/$/, "");
+    const res = await fetch(`${base}/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, priceId })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text || "Subscribe failed");
+    }
+    const data = await res.json();
+    if (data.customer_id) localStorage.setItem(CUSTOMER_ID_KEY, data.customer_id);
+    return data;
+  }
+
   function wireUp() {
     const btn = $(IDS.btnGenerate);
     if (btn) {
@@ -398,8 +450,21 @@
         }
       });
     }
+    const subscribeBtn = $(IDS.btnSubscribe);
+    if (subscribeBtn) {
+      subscribeBtn.addEventListener("click", async () => {
+        try {
+          const result = await createSubscription();
+          console.log("[AI-Assassins] Subscription created", result);
+          await refreshSubscriptionStatus();
+        } catch (error) {
+          setError(error.message || "Subscription failed");
+        }
+      });
+    }
     setAutoRefreshStatus(Boolean(autoRefreshTimer));
     loadBriefHistory();
+    refreshSubscriptionStatus();
   }
 
   if (document.readyState === "loading") {

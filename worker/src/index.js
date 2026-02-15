@@ -126,6 +126,49 @@ export default {
         return json({ token, email, expires_in: 86400 });
       }
 
+      if (request.method === "POST" && url.pathname === "/subscribe") {
+        const body = await request.json().catch(() => ({}));
+        const email = String(body?.email || "").trim();
+        const priceId = String(body?.priceId || body?.price_id || "").trim();
+        if (!email || !priceId) return json({ error: "email and priceId are required" }, 400);
+        if (!env.STRIPE_SECRET_KEY) return json({ error: "Stripe not configured" }, 501);
+
+        const customer = await stripeCreateCustomer(env.STRIPE_SECRET_KEY, email);
+        const subscription = await stripeCreateSubscription(env.STRIPE_SECRET_KEY, customer.id, priceId);
+        await upsertSubscriptionStatus(env, customer.id, subscription.status || "incomplete", subscription);
+
+        return json({
+          ok: true,
+          customer_id: customer.id,
+          subscription_id: subscription.id,
+          status: subscription.status
+        });
+      }
+
+      if (request.method === "GET" && url.pathname === "/status") {
+        const customerId = String(url.searchParams.get("customer_id") || "").trim();
+        if (!customerId) return json({ tier: "free", status: "none" });
+
+        if (env.STRIPE_SECRET_KEY) {
+          const latest = await stripeGetLatestSubscription(env.STRIPE_SECRET_KEY, customerId);
+          const status = latest?.status || "none";
+          await upsertSubscriptionStatus(env, customerId, status, latest || {});
+          return json({
+            customer_id: customerId,
+            status,
+            tier: status === "active" ? "pro" : "free"
+          });
+        }
+
+        const saved = await getSubscriptionStatus(env, customerId);
+        if (!saved) return json({ customer_id: customerId, status: "none", tier: "free" });
+        return json({
+          customer_id: customerId,
+          status: saved.status,
+          tier: saved.status === "active" ? "pro" : "free"
+        });
+      }
+
       if (request.method === "POST" && url.pathname === "/api/brief") {
         const body = await request.json().catch(() => null);
         const validated = validateBriefBody(body);
@@ -425,6 +468,81 @@ function isAuthorizedWrite(request, env) {
     return false;
   }
   return true;
+}
+
+async function stripeCreateCustomer(secretKey, email) {
+  const body = new URLSearchParams();
+  body.set("email", email);
+  const res = await fetch("https://api.stripe.com/v1/customers", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+  if (!res.ok) throw new Error(`Stripe customer error ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function stripeCreateSubscription(secretKey, customerId, priceId) {
+  const body = new URLSearchParams();
+  body.set("customer", customerId);
+  body.set("items[0][price]", priceId);
+  body.set("payment_behavior", "default_incomplete");
+  body.set("collection_method", "charge_automatically");
+
+  const res = await fetch("https://api.stripe.com/v1/subscriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+  if (!res.ok) throw new Error(`Stripe subscription error ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function stripeGetLatestSubscription(secretKey, customerId) {
+  const res = await fetch(
+    `https://api.stripe.com/v1/subscriptions?customer=${encodeURIComponent(customerId)}&limit=1`,
+    {
+      headers: { Authorization: `Bearer ${secretKey}` }
+    }
+  );
+  if (!res.ok) throw new Error(`Stripe status error ${res.status}: ${await res.text()}`);
+  const jsonData = await res.json();
+  return Array.isArray(jsonData?.data) ? jsonData.data[0] : null;
+}
+
+async function upsertSubscriptionStatus(env, customerId, status, payload) {
+  if (!env.BRIEFS_DB) return;
+  await ensureSubscriptionTables(env);
+  await env.BRIEFS_DB
+    .prepare(
+      "INSERT INTO subscriptions (customer_id, status, updated_at, json) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(customer_id) DO UPDATE SET status=excluded.status, updated_at=excluded.updated_at, json=excluded.json"
+    )
+    .bind(customerId, status, new Date().toISOString(), JSON.stringify(payload || {}))
+    .run();
+}
+
+async function getSubscriptionStatus(env, customerId) {
+  if (!env.BRIEFS_DB) return null;
+  await ensureSubscriptionTables(env);
+  return env.BRIEFS_DB
+    .prepare("SELECT customer_id, status, updated_at FROM subscriptions WHERE customer_id = ?1")
+    .bind(customerId)
+    .first();
+}
+
+let subscriptionTableReady = false;
+async function ensureSubscriptionTables(env) {
+  if (subscriptionTableReady || !env.BRIEFS_DB) return;
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS subscriptions (customer_id TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);"
+  );
+  subscriptionTableReady = true;
 }
 
 function getScripture() {
