@@ -3,13 +3,81 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Assassins</title>
-  <meta http-equiv="refresh" content="0; url=./app/">
-  <script>
-    window.location.replace("./app/");
-  </script>
+  <title>AI Assassins Daily Brief</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <meta name="theme-color" content="#0b0f13">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <style>
+    :root { --bg:#0b0f13; --card:#101923; --border:#24364b; --text:#e7eef7; --muted:#9fb0c5; --accent:#89b4ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .wrap { max-width:1120px; margin:0 auto; padding:18px; }
+    .top { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; flex-wrap:wrap; }
+    .title { margin:0; font-size:1.35rem; }
+    .sub { color:var(--muted); font-size:.9rem; margin-top:4px; }
+    .controls { display:flex; gap:8px; flex-wrap:wrap; }
+    button,input { border-radius:10px; border:1px solid var(--border); background:#162434; color:var(--text); }
+    button { padding:10px 14px; cursor:pointer; }
+    button:disabled { opacity:.7; cursor:not-allowed; }
+    input { padding:9px 10px; }
+    .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .grid { margin-top:14px; display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:12px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; }
+    .card h3 { margin:0 0 8px 0; font-size:1rem; }
+    ul { margin:0; padding-left:16px; }
+    .kvs { display:grid; grid-template-columns:1fr auto; row-gap:6px; }
+    .muted { color:var(--muted); }
+    .error { margin-top:10px; padding:9px 11px; border:1px solid #6a2c2c; background:#2a1515; border-radius:10px; display:none; }
+    .loading { display:none; color:var(--accent); margin-top:10px; }
+  </style>
 </head>
 <body>
-  <p>Redirecting to <a href="./app/">AI Assassins Daily Brief</a>...</p>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <h1 class="title">AI Assassins Daily Brief</h1>
+        <div class="sub">Live intelligence brief generated via Cloudflare Worker + OpenAI</div>
+      </div>
+      <div class="controls">
+        <button id="btnGenerate">Generate Brief</button>
+      </div>
+    </div>
+
+    <div class="row">
+      <input id="latInput" placeholder="Lat (e.g. 29.7604)">
+      <input id="lonInput" placeholder="Lon (e.g. -95.3698)">
+      <input id="focusInput" placeholder="Focus (optional)">
+      <input id="toneInput" placeholder="Tone (optional)">
+    </div>
+
+    <div id="loadingState" class="loading">Fetching...</div>
+    <div id="errorBox" class="error"></div>
+
+    <div class="grid">
+      <section class="card"><h3>Overnight Overview</h3><ul id="overnightOverview"><li class="muted">N/A</li></ul></section>
+      <section class="card"><h3>Markets Snapshot</h3>
+        <div class="kvs">
+          <div>S&amp;P 500</div><div id="sp500" class="muted">N/A</div>
+          <div>NASDAQ</div><div id="nasdaq" class="muted">N/A</div>
+          <div>WTI</div><div id="wti" class="muted">N/A</div>
+          <div>BTC</div><div id="btc" class="muted">N/A</div>
+        </div>
+      </section>
+      <section class="card"><h3>Weather</h3><div id="weatherLocal" class="muted">N/A</div></section>
+      <section class="card"><h3>Next Up Calendar</h3><ul id="calendarEvents"><li class="muted">N/A</li></ul></section>
+      <section class="card"><h3>Scripture of the Day</h3><div id="scriptureDay" class="muted">N/A</div></section>
+      <section class="card"><h3>Mission Priorities</h3><ul id="missionPriorities"><li class="muted">N/A</li></ul></section>
+      <section class="card">
+        <h3>Black Phoenix Truthwave</h3>
+        <div><strong>Narrative:</strong> <span id="truthwaveNarrative" class="muted">N/A</span></div>
+        <div><strong>Risk:</strong> <span id="truthwaveRisk" class="muted">N/A</span></div>
+        <div><strong>Counter:</strong> <span id="truthwaveCounter" class="muted">N/A</span></div>
+      </section>
+      <section class="card"><h3>Top Tasks</h3><ul id="topTasks"><li class="muted">N/A</li></ul></section>
+      <section class="card"><h3>Command Note</h3><div id="commandNote" class="muted">N/A</div></section>
+    </div>
+  </div>
+
+  <script type="module" src="./integrations.js"></script>
 </body>
 </html>
