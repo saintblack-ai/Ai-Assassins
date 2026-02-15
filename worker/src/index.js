@@ -384,6 +384,12 @@ async function saveBrief(env, brief) {
       .prepare("INSERT INTO briefs (id, timestamp, json) VALUES (?1, ?2, ?3)")
       .bind(id, timestamp, payload)
       .run();
+  } else if (env.BRIEFS_KV) {
+    await env.BRIEFS_KV.put(`brief:${id}`, payload);
+    const rawIndex = await env.BRIEFS_KV.get("briefs:index");
+    const parsed = rawIndex ? JSON.parse(rawIndex) : [];
+    const next = [{ id, timestamp }, ...parsed].slice(0, 200);
+    await env.BRIEFS_KV.put("briefs:index", JSON.stringify(next));
   } else {
     IN_MEMORY_BRIEFS.set(id, { id, timestamp, json: payload });
   }
@@ -402,6 +408,10 @@ async function getBriefById(env, id) {
       .first();
     if (!row) return null;
     return { id: row.id, timestamp: row.timestamp, ...JSON.parse(row.json) };
+  } else if (env.BRIEFS_KV) {
+    const payload = await env.BRIEFS_KV.get(`brief:${id}`);
+    if (!payload) return null;
+    return { id, ...JSON.parse(payload) };
   }
 
   const row = IN_MEMORY_BRIEFS.get(id);
@@ -417,6 +427,10 @@ async function listBriefs(env, limit) {
       .bind(limit)
       .all();
     return Array.isArray(res?.results) ? res.results : [];
+  } else if (env.BRIEFS_KV) {
+    const rawIndex = await env.BRIEFS_KV.get("briefs:index");
+    const parsed = rawIndex ? JSON.parse(rawIndex) : [];
+    return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
   }
 
   return Array.from(IN_MEMORY_BRIEFS.entries())
