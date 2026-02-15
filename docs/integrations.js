@@ -28,6 +28,7 @@
     btnSubscribe: "btnSubscribe",
     btnExportPdf: "btnExportPdf",
     subscriptionBadge: "subscriptionBadge",
+    toastContainer: "toastContainer",
 
     overnightOverview: "overnightOverview",
     sp500: "sp500",
@@ -80,10 +81,23 @@
     if (msg) {
       el.style.display = "block";
       el.textContent = msg;
+      toast(msg, "error");
     } else {
       el.style.display = "none";
       el.textContent = "";
     }
+  }
+
+  function toast(message, kind = "info") {
+    const wrap = $(IDS.toastContainer);
+    if (!wrap || !message) return;
+    const el = document.createElement("div");
+    el.className = `toast${kind === "error" ? " error" : ""}`;
+    el.textContent = String(message);
+    wrap.appendChild(el);
+    setTimeout(() => {
+      el.remove();
+    }, 3200);
   }
 
   function setAutoRefreshStatus(enabled) {
@@ -338,6 +352,7 @@
         autoRefreshTimer = setInterval(fetchBrief, 600000);
       }
       setAutoRefreshStatus(true);
+      toast("Brief updated");
     } catch (err) {
       console.error("[AI-Assassins] generate failed:", err);
       setError(err?.message || String(err));
@@ -465,6 +480,7 @@
           const result = await login(email, password);
           setError("");
           console.log("[AI-Assassins] Login succeeded", result.email);
+          toast("Login successful");
           loginDialog?.close();
         } catch (error) {
           setError(error.message || "Login failed");
@@ -477,6 +493,7 @@
         try {
           const result = await createSubscription();
           console.log("[AI-Assassins] Subscription created", result);
+          toast("Subscription created");
           await refreshSubscriptionStatus();
         } catch (error) {
           setError(error.message || "Subscription failed");
@@ -488,6 +505,7 @@
       exportBtn.addEventListener("click", async () => {
         try {
           await exportPdf();
+          toast("PDF exported");
         } catch (error) {
           setError(error.message || "PDF export failed");
         }
