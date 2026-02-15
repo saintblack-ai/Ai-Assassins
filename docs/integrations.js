@@ -208,23 +208,13 @@ async function requestBrief({ lat, lon, focus, tone, icsUrl }) {
 
   const postUrl = `${base}/api/brief`;
   console.log("[AI-Assassins] POST /api/brief", postUrl);
-  let res = await fetchWithTimeout(postUrl, {
+  const res = await fetchWithTimeout(postUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    headers: { "content-type": "application/json", Accept: "application/json" },
+    cache: "no-store",
+    mode: "cors",
     body: JSON.stringify({ lat: lat || null, lon: lon || null, focus: focus || null, tone: tone || null, icsUrl: icsUrl || null })
   }, 12000);
-
-  if (!res.ok) {
-    const getUrl = new URL(`${base}/brief`);
-    if (lat) getUrl.searchParams.set("lat", lat);
-    if (lon) getUrl.searchParams.set("lon", lon);
-    if (focus) getUrl.searchParams.set("focus", focus);
-    if (tone) getUrl.searchParams.set("tone", tone);
-    if (icsUrl) getUrl.searchParams.set("icsUrl", icsUrl);
-
-    console.warn("[AI-Assassins] /api/brief failed, retrying GET /brief", getUrl.toString());
-    res = await fetchWithTimeout(getUrl.toString(), { method: "GET", headers: { Accept: "application/json" } }, 12000);
-  }
 
   const txt = await res.text();
   const parsed = safeJsonParse(txt);
