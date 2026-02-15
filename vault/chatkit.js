@@ -1,6 +1,7 @@
 // chatkit.js — ARCHAIOS Vault Interface ↔ Cloudflare Worker
 
-const PROXY_URL = "https://archaios-proxy.quandrix357.workers.dev";
+const WORKFLOW_ID = "wf_690439f7ec7081908c60483912da5b3b0c6f69dbf0cf4846"; // your workflow
+const PROXY_URL   = "https://archaios-proxy.quandrix357.workers.dev";      // no trailing slash
 
 function appendMessage(text) {
   const log = document.getElementById('log');
@@ -13,50 +14,41 @@ function appendMessage(text) {
 
 async function callChatKit(message) {
   try {
+    const payload = { workflow_id: WORKFLOW_ID, message };
     const res = await fetch(PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message })
+      body: JSON.stringify(payload)
     });
 
     const data = await res.json().catch(() => ({}));
-
     if (!res.ok) {
-      appendMessage(`ERROR: ${data?.error || res.statusText}`);
+      appendMessage(`Archaios error (${res.status}): ${data?.error || res.statusText}`);
+      if (data?.detail) appendMessage(String(data.detail));
       return;
     }
 
-    if (data.reply) {
-      appendMessage(`ARCHAIOS: ${data.reply}`);
-    } else if (data.error) {
-      appendMessage(`ERROR: ${data.error}`);
-    } else {
-      appendMessage(`(No response from Archaios)`);
-    }
-  } catch (err) {
-    appendMessage(`NETWORK ERROR: ${err.message}`);
+    // Prefer 'text' from Worker, else show raw
+    appendMessage(`Archaios: ${data.text || JSON.stringify(data)}`);
+  } catch (e) {
+    appendMessage(`Archaios exception: ${e}`);
   }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
-  const input = document.getElementById('input');
-  const send = document.getElementById('send');
+  const input = document.getElementById('userInput');
+  const send  = document.getElementById('sendBtn');
 
-  async function sendNow() {
-    const text = (input.value || '').trim();
-    if (!text) return;
-    appendMessage(`You: ${text}`);
+  function sendMsg() {
+    const msg = (input.value || '').trim();
+    if (!msg) return;
+    appendMessage(`You: ${msg}`);
     input.value = '';
-    await callChatKit(text);
+    callChatKit(msg);
   }
 
-  send?.addEventListener('click', sendNow);
+  send?.addEventListener('click', sendMsg);
   input?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendNow();
-    }
+    if (e.key === 'Enter') sendMsg();
   });
-
-  appendMessage('SYSTEM: Ready. Type and press Enter.');
 });
