@@ -26,6 +26,7 @@ const IDS = {
 };
 
 const missingWarned = new Set();
+let autoRefreshTimer = null;
 
 function byId(id) {
   const el = document.getElementById(id);
@@ -59,6 +60,14 @@ function setError(message) {
     box.style.display = "none";
     box.textContent = "";
   }
+}
+
+function setAutoRefreshStatus(enabled) {
+  const el = byId("autoRefreshStatus");
+  if (!el) return;
+  el.textContent = enabled
+    ? "Auto-refresh enabled (every 10m)"
+    : "Auto-refresh disabled";
 }
 
 function pick(obj, keys, fallback = undefined) {
@@ -215,6 +224,11 @@ async function generateBrief() {
       weatherFallback = await fetchWeatherFallback(inputs.lat, inputs.lon);
     }
     renderBrief(data, weatherFallback);
+    if (!autoRefreshTimer) {
+      autoRefreshTimer = setInterval(generateBrief, 600000);
+      console.log("[AI-Assassins] Auto-refresh enabled (every 10m)");
+    }
+    setAutoRefreshStatus(true);
   } catch (err) {
     console.error("[AI-Assassins] generate failed", err);
     setError(err?.message || String(err));
@@ -230,4 +244,5 @@ window.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     generateBrief();
   });
+  setAutoRefreshStatus(Boolean(autoRefreshTimer));
 });
