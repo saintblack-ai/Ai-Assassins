@@ -368,15 +368,15 @@ window.AIA = (() => {
   function setNodeText(ids, text) {
     const arr = Array.isArray(ids) ? ids : [ids];
     for (const id of arr) {
-      const node = document.getElementById(id);
+      const node = safeGetById(id);
       if (node) node.textContent = text;
     }
   }
 
   function setNodeList(id, values) {
-    const node = document.getElementById(id);
+    const node = safeGetById(id);
     if (!node) return;
-    node.innerHTML = "";
+    clearNode(node);
     const list = Array.isArray(values) && values.length ? values : [FALLBACK_TEXT];
     for (const value of list) {
       const li = document.createElement("li");
@@ -386,11 +386,11 @@ window.AIA = (() => {
   }
 
   function updateCard(selector, value) {
-    const node = document.querySelector(selector);
+    const node = safeQuery(selector);
     if (!node) return;
 
     if (Array.isArray(value)) {
-      node.innerHTML = "";
+      clearNode(node);
       const list = value.length ? value : [FALLBACK_TEXT];
       for (const item of list) {
         const li = document.createElement("li");
@@ -438,10 +438,36 @@ window.AIA = (() => {
   }
 
   function showLoadingState() {
-    const generateButton = document.getElementById("generate");
+    const generateButton = safeGetById("generate");
     if (!generateButton) return;
     generateButton.disabled = true;
     generateButton.textContent = "Generating...";
+  }
+
+  function safeGetById(id) {
+    try {
+      return document.getElementById(id);
+    } catch (error) {
+      console.error(`DOM getElementById failed for "${id}"`, error);
+      return null;
+    }
+  }
+
+  function safeQuery(selector) {
+    try {
+      return document.querySelector(selector);
+    } catch (error) {
+      console.error(`DOM querySelector failed for "${selector}"`, error);
+      return null;
+    }
+  }
+
+  function clearNode(node) {
+    try {
+      node.textContent = "";
+    } catch (error) {
+      console.error("DOM clear operation failed", error);
+    }
   }
 
   function normalizeNumber(value) {
