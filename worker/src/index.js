@@ -214,25 +214,22 @@ async function getWeather(lat, lon) {
   u.searchParams.set("latitude", String(lat));
   u.searchParams.set("longitude", String(lon));
   u.searchParams.set("current_weather", "true");
-  u.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
-  u.searchParams.set("forecast_days", "1");
+  u.searchParams.set("daily", "temperature_2m_max,temperature_2m_min");
   u.searchParams.set("timezone", "auto");
 
   const r = await fetch(u.toString());
   if (!r.ok) throw new Error(`weather upstream ${r.status}`);
   const j = await r.json();
   const current = j.current_weather || {};
-  const temp = Number(current.temperature);
-  const wind = Number(current.windspeed);
-  const high = j.daily?.temperature_2m_max?.[0];
-  const low = j.daily?.temperature_2m_min?.[0];
-  const precip = j.daily?.precipitation_sum?.[0];
+  const high = j.daily?.temperature_2m_max?.[0] ?? null;
+  const low = j.daily?.temperature_2m_min?.[0] ?? null;
+  const precip = current?.precipitation ?? null;
 
   return {
-    summary: `Current ${Number.isFinite(temp) ? temp : "-"}°C, wind ${Number.isFinite(wind) ? wind : "-"} km/h`,
-    high: String(high ?? "-"),
-    low: String(low ?? "-"),
-    precip: String(precip ?? "-")
+    summary: current?.weathercode ?? null,
+    high,
+    low,
+    precip
   };
 }
 
