@@ -17,6 +17,7 @@ window.AIA = (() => {
   }
 
   async function generateBrief(brief, settings) {
+    showLoadingState();
     setLoadingState(brief);
     syncDomFromBrief(brief);
 
@@ -423,7 +424,16 @@ window.AIA = (() => {
 
   function hideLoadingState() {
     const generateButton = document.getElementById("generate");
-    if (generateButton) generateButton.disabled = false;
+    if (!generateButton) return;
+    generateButton.disabled = false;
+    generateButton.textContent = "Generate Brief";
+  }
+
+  function showLoadingState() {
+    const generateButton = document.getElementById("generate");
+    if (!generateButton) return;
+    generateButton.disabled = true;
+    generateButton.textContent = "Generating...";
   }
 
   function normalizeNumber(value) {
