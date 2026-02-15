@@ -1,7 +1,23 @@
-// AI Assassins integrations (v10)
+// AI Assassins integrations (v11)
 window.AIA = (() => {
-  // Replace <SUBDOMAIN> after deploying your worker.
-  const API_BASE = "https://ai-assassins-api.<SUBDOMAIN>.workers.dev";
+  const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+  const FALLBACK_TEXT = "N/A";
+  const FETCHING_TEXT = "Fetching...";
+
+  const DOM_IDS = {
+    overview: "overnightOverview",
+    SP500: ["sp500", "SP500"],
+    NASDAQ: ["nasdaq", "NASDAQ"],
+    BTC: ["btc", "BTC"],
+    WTI: ["wti", "WTI"],
+    weather: "weatherLocal",
+    calendar: "calendarEvents",
+    scripture: "scriptureDay",
+    priorities: "missionPriorities",
+    truthwave: "truthwave",
+    tasks: "topTasks",
+    command: "commandNote"
+  };
 
   async function fillLive(brief, settings) {
     await Promise.allSettled([
@@ -11,10 +27,14 @@ window.AIA = (() => {
       fetchScripture(brief),
       fillCalendar(brief, settings)
     ]);
+    syncBriefToDom(brief);
     return brief;
   }
 
   async function generateBrief(brief, settings) {
+    setLoadingState(brief);
+    syncBriefToDom(brief);
+
     try {
       const payload = {
         date: new Date().toISOString().slice(0, 10),
@@ -22,18 +42,23 @@ window.AIA = (() => {
         audience: settings?.callsign || "Commander",
         tone: "strategic"
       };
+
       const data = await fetchJson(`${API_BASE}/api/brief`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
+
       applyBriefPayload(brief, data);
-    } catch {
-      markUnavailable(brief, "overview", "Unavailable");
-      markUnavailable(brief, "truthwave", "Unavailable");
-      markUnavailable(brief, "tasks", "Unavailable");
-      markUnavailable(brief, "closing", "Unavailable");
+    } catch (error) {
+      console.error("Generate brief failed:", error);
+      markUnavailable(brief, "overview");
+      markUnavailable(brief, "truthwave");
+      markUnavailable(brief, "tasks");
+      markUnavailable(brief, "closing");
     }
+
+    syncBriefToDom(brief);
     return brief;
   }
 
@@ -43,47 +68,75 @@ window.AIA = (() => {
 
   async function fetchJson(url, init) {
     const response = await fetch(url, init);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
     return response.json();
   }
 
   function money(value) {
     return Number.isFinite(value)
       ? `$${Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-      : "Unavailable";
+      : FALLBACK_TEXT;
   }
 
-  function markUnavailable(brief, key, text) {
+  function markUnavailable(brief, key) {
     const section = sec(brief, key);
     if (!section) return;
+
     if (section.kvs) {
-      section.kvs = section.kvs.map(([name]) => [name, "Unavailable"]);
+      section.kvs = section.kvs.map(([name]) => [name, FALLBACK_TEXT]);
       return;
     }
-    section.items = [text];
+
+    section.items = [FALLBACK_TEXT];
+  }
+
+  function setLoadingState(brief) {
+    const keys = ["overview", "weather", "scripture", "truthwave", "tasks", "closing", "calendar", "priorities"];
+    keys.forEach((key) => {
+      const section = sec(brief, key);
+      if (!section || section.kvs) return;
+      section.items = [FETCHING_TEXT];
+    });
+
+    const markets = sec(brief, "markets");
+    if (markets && markets.kvs) {
+      markets.kvs = [
+        ["S&P 500", FETCHING_TEXT],
+        ["Nasdaq", FETCHING_TEXT],
+        ["WTI", FETCHING_TEXT],
+        ["BTC", FETCHING_TEXT]
+      ];
+    }
   }
 
   async function fetchOverview(brief) {
     const section = sec(brief, "overview");
     if (!section) return;
+
     try {
       const data = await fetchJson(`${API_BASE}/api/overview`);
       const items = Array.isArray(data?.items) ? data.items : [];
+
       section.items = items.slice(0, 5).map((item) => {
         const title = escapeHtml(item.title || "Untitled");
         const link = item.link || "#";
         const source = escapeHtml(item.source || "Source");
         return `<a href="${link}" target="_blank" rel="noopener">${title} (${source})</a>`;
       });
-      if (!section.items.length) section.items = ["Unavailable"];
-    } catch {
-      section.items = ["Unavailable"];
+
+      if (!section.items.length) section.items = [FALLBACK_TEXT];
+    } catch (error) {
+      console.error("Overview fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
     }
   }
 
   async function fetchMarkets(brief) {
     const section = sec(brief, "markets");
     if (!section) return;
+
     try {
       const data = await fetchJson(`${API_BASE}/api/markets`);
       const values = {
@@ -92,35 +145,32 @@ window.AIA = (() => {
         WTI: data?.WTI ?? null,
         BTC: data?.BTC ?? null
       };
+
       section.kvs = [
         ["S&P 500", money(values.SP500)],
         ["Nasdaq", money(values.NASDAQ)],
         ["WTI", money(values.WTI)],
         ["BTC", money(values.BTC)]
       ];
+
       updateMarketDom(values);
-    } catch {
+    } catch (error) {
+      console.error("Markets fetch failed:", error);
       section.kvs = [
-        ["S&P 500", "Unavailable"],
-        ["Nasdaq", "Unavailable"],
-        ["WTI", "Unavailable"],
-        ["BTC", "Unavailable"]
+        ["S&P 500", FALLBACK_TEXT],
+        ["Nasdaq", FALLBACK_TEXT],
+        ["WTI", FALLBACK_TEXT],
+        ["BTC", FALLBACK_TEXT]
       ];
       updateMarketDom({ SP500: null, NASDAQ: null, WTI: null, BTC: null });
     }
   }
 
   function updateMarketDom(values) {
-    const map = {
-      SP500: values.SP500,
-      NASDAQ: values.NASDAQ,
-      WTI: values.WTI,
-      BTC: values.BTC
-    };
-    Object.entries(map).forEach(([id, value]) => {
-      const node = document.getElementById(id);
-      if (node) node.textContent = money(value);
-    });
+    setNodeText(DOM_IDS.SP500, money(values.SP500));
+    setNodeText(DOM_IDS.NASDAQ, money(values.NASDAQ));
+    setNodeText(DOM_IDS.BTC, money(values.BTC));
+    setNodeText(DOM_IDS.WTI, money(values.WTI));
   }
 
   async function fetchWeather(brief, settings) {
@@ -129,10 +179,10 @@ window.AIA = (() => {
 
     const [lat, lon] = String(settings?.latlon || "")
       .split(",")
-      .map((n) => parseFloat(n.trim()));
+      .map((value) => parseFloat(value.trim()));
 
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      section.items = ["Unavailable"];
+      section.items = [FALLBACK_TEXT];
       return;
     }
 
@@ -140,28 +190,32 @@ window.AIA = (() => {
       const data = await fetchJson(`${API_BASE}/api/weather?lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`);
       const current = data?.current || {};
       const daily = data?.daily || {};
+
       section.items = [
         `Current: ${current.temperature_2m ?? "-"}C, wind ${current.wind_speed_10m ?? "-"} km/h`,
         `High / Low: ${daily.max ?? "-"}C / ${daily.min ?? "-"}C`,
         `Precip: ${daily.precipitation_sum ?? "-"} mm`
       ];
-    } catch {
-      section.items = ["Unavailable"];
+    } catch (error) {
+      console.error("Weather fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
     }
   }
 
   async function fetchScripture(brief) {
     const section = sec(brief, "scripture");
     if (!section) return;
+
     try {
       const data = await fetchJson(`${API_BASE}/api/scripture`);
       section.items = [
         `${data?.translation || "KJV"} - ${data?.reference || ""}`,
-        data?.text || "Unavailable",
-        `Reflection: ${data?.reflection || "Unavailable"}`
+        data?.text || FALLBACK_TEXT,
+        `Reflection: ${data?.reflection || FALLBACK_TEXT}`
       ];
-    } catch {
-      section.items = ["Unavailable"];
+    } catch (error) {
+      console.error("Scripture fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
     }
   }
 
@@ -175,21 +229,24 @@ window.AIA = (() => {
     try {
       const response = await fetch(url);
       if (!response.ok) {
-        section.items = ["Unavailable"];
+        section.items = [FALLBACK_TEXT];
         return;
       }
+
       const text = await response.text();
       const events = parseICS(text);
       const now = new Date();
       const limit = Number(settings?.agendaCount || 3);
+
       const upcoming = events
         .filter((event) => event.start && event.start > now)
         .sort((a, b) => a.start - b.start)
         .slice(0, limit);
 
-      section.items = upcoming.length ? upcoming.map(formatEvent) : ["Unavailable"];
-    } catch {
-      section.items = ["Unavailable"];
+      section.items = upcoming.length ? upcoming.map(formatEvent) : [FALLBACK_TEXT];
+    } catch (error) {
+      console.error("Calendar fetch failed:", error);
+      section.items = [FALLBACK_TEXT];
     }
   }
 
@@ -220,20 +277,24 @@ window.AIA = (() => {
         if (line.startsWith("DTEND")) current.end = parseICSTime(line);
       }
     }
+
     return events;
   }
 
   function parseICSTime(line) {
     const match = line.match(/:(\d{8}T\d{6}Z?)/);
     if (!match) return null;
+
     const raw = match[1];
     if (raw.endsWith("Z")) return new Date(raw);
+
     const y = Number(raw.slice(0, 4));
     const m = Number(raw.slice(4, 6)) - 1;
     const d = Number(raw.slice(6, 8));
     const hh = Number(raw.slice(9, 11));
     const mm = Number(raw.slice(11, 13));
     const ss = Number(raw.slice(13, 15));
+
     return new Date(y, m, d, hh, mm, ss);
   }
 
@@ -243,11 +304,12 @@ window.AIA = (() => {
     const end = event.end
       ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(event.end)
       : "";
+
     return `${day} ${start}${end ? `-${end}` : ""} - ${event.summary || "(No title)"}${event.location ? ` @ ${event.location}` : ""}`;
   }
 
   function applyBriefPayload(brief, payload) {
-    const map = {
+    const sectionMap = {
       overnight_overview: "overview",
       markets_snapshot: "markets",
       weather_local: "weather",
@@ -259,27 +321,68 @@ window.AIA = (() => {
       command_note: "closing"
     };
 
-    Object.entries(map).forEach(([sourceKey, targetKey]) => {
+    Object.entries(sectionMap).forEach(([sourceKey, targetKey]) => {
       const section = sec(brief, targetKey);
       if (!section) return;
 
       const value = payload?.[sourceKey];
-      if (section.kvs && value && typeof value === "object") {
+
+      if (targetKey === "markets") {
+        const m = value && typeof value === "object" ? value : {};
+        const marketValues = {
+          SP500: normalizeNumber(m.SP500),
+          NASDAQ: normalizeNumber(m.NASDAQ),
+          BTC: normalizeNumber(m.BTC),
+          WTI: normalizeNumber(m.WTI)
+        };
+
         section.kvs = [
-          ["S&P 500", money(value.SP500 ?? null)],
-          ["Nasdaq", money(value.NASDAQ ?? null)],
-          ["WTI", money(value.WTI ?? null)],
-          ["BTC", money(value.BTC ?? null)]
+          ["S&P 500", money(marketValues.SP500)],
+          ["Nasdaq", money(marketValues.NASDAQ)],
+          ["WTI", money(marketValues.WTI)],
+          ["BTC", money(marketValues.BTC)]
         ];
-        updateMarketDom(value);
-      } else if (Array.isArray(value)) {
-        section.items = value.length ? value.map((item) => String(item)) : ["Unavailable"];
-      } else if (typeof value === "string") {
-        section.items = [value];
-      } else if (value && typeof value === "object") {
-        section.items = Object.entries(value).map(([k, v]) => `${k}: ${v}`);
+
+        updateMarketDom(marketValues);
+        return;
       }
+
+      if (Array.isArray(value)) {
+        section.items = value.length ? value.map((item) => String(item)) : [FALLBACK_TEXT];
+        return;
+      }
+
+      if (value && typeof value === "object") {
+        section.items = objectToLines(value);
+        return;
+      }
+
+      if (typeof value === "string") {
+        section.items = [value || FALLBACK_TEXT];
+        return;
+      }
+
+      section.items = [FALLBACK_TEXT];
     });
+  }
+
+  function objectToLines(value) {
+    const entries = Object.entries(value || {});
+    if (!entries.length) return [FALLBACK_TEXT];
+    return entries.map(([key, val]) => `${toTitle(key)}: ${val ?? FALLBACK_TEXT}`);
+  }
+
+  function toTitle(text) {
+    return String(text)
+      .replaceAll(/[_-]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+
+  function normalizeNumber(value) {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : null;
   }
 
   function escapeHtml(text) {
@@ -290,9 +393,52 @@ window.AIA = (() => {
       .replaceAll('"', "&quot;");
   }
 
+  function setNodeText(ids, text) {
+    const candidates = Array.isArray(ids) ? ids : [ids];
+    candidates.forEach((id) => {
+      const node = document.getElementById(id);
+      if (node) node.textContent = text;
+    });
+  }
+
+  function setNodeList(ids, values) {
+    const candidates = Array.isArray(ids) ? ids : [ids];
+    candidates.forEach((id) => {
+      const node = document.getElementById(id);
+      if (!node) return;
+      node.innerHTML = "";
+      const list = Array.isArray(values) && values.length ? values : [FALLBACK_TEXT];
+      list.forEach((value) => {
+        const item = document.createElement("li");
+        item.textContent = String(value);
+        node.appendChild(item);
+      });
+    });
+  }
+
+  function syncBriefToDom(brief) {
+    const overview = sec(brief, "overview");
+    const weather = sec(brief, "weather");
+    const calendar = sec(brief, "calendar");
+    const scripture = sec(brief, "scripture");
+    const priorities = sec(brief, "priorities");
+    const truthwave = sec(brief, "truthwave");
+    const tasks = sec(brief, "tasks");
+    const closing = sec(brief, "closing");
+
+    setNodeList(DOM_IDS.overview, overview?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.weather, weather?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.calendar, calendar?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.scripture, scripture?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.priorities, priorities?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.truthwave, truthwave?.items || [FALLBACK_TEXT]);
+    setNodeList(DOM_IDS.tasks, tasks?.items || [FALLBACK_TEXT]);
+    setNodeText(DOM_IDS.command, (closing?.items && closing.items[0]) || FALLBACK_TEXT);
+  }
+
   return {
+    API_BASE,
     fillLive,
-    generateBrief,
-    API_BASE
+    generateBrief
   };
 })();
