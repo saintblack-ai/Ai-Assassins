@@ -60,6 +60,7 @@ const WEATHER_CODE_MAP = {
 };
 
 const IN_MEMORY_BRIEFS = new Map();
+const IN_MEMORY_AUTH_TOKENS = new Map();
 
 export default {
   async fetch(request, env) {
@@ -106,9 +107,23 @@ export default {
 
         const validated = validateBriefQuery(url.searchParams);
         if (!validated.ok) return json({ error: validated.error }, 400);
+        if (!isAuthorizedWrite(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
+        }
         const brief = await buildBrief(validated.value, env);
         const saved = await saveBrief(env, brief);
         return json({ id: saved.id, ...brief });
+      }
+
+      if (request.method === "POST" && url.pathname === "/auth/login") {
+        const body = await request.json().catch(() => ({}));
+        const email = String(body?.email || "").trim();
+        const password = String(body?.password || "");
+        const valid = validateLogin(email, password, env);
+        if (!valid) return json({ error: "Invalid credentials" }, 401);
+
+        const token = issueAuthToken(email);
+        return json({ token, email, expires_in: 86400 });
       }
 
       if (request.method === "POST" && url.pathname === "/api/brief") {
@@ -116,6 +131,9 @@ export default {
         const validated = validateBriefBody(body);
         if (!validated.ok) {
           return json({ error: validated.error }, 400);
+        }
+        if (!isAuthorizedWrite(request, env)) {
+          return json({ error: "Unauthorized" }, 401);
         }
 
         const brief = await buildBrief(validated.value, env);
@@ -371,6 +389,42 @@ async function ensureBriefTables(env) {
     "CREATE TABLE IF NOT EXISTS briefs (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, json TEXT NOT NULL);"
   );
   briefTableReady = true;
+}
+
+function validateLogin(email, password, env) {
+  const requiredEmail = String(env.AUTH_EMAIL || "").trim();
+  const requiredPassword = String(env.AUTH_PASSWORD || "");
+  if (requiredEmail && requiredPassword) {
+    return email.toLowerCase() === requiredEmail.toLowerCase() && password === requiredPassword;
+  }
+  return Boolean(email && password);
+}
+
+function issueAuthToken(email) {
+  const token = `aia_${crypto.randomUUID()}`;
+  IN_MEMORY_AUTH_TOKENS.set(token, {
+    email,
+    exp: Date.now() + 86400000
+  });
+  return token;
+}
+
+function isAuthorizedWrite(request, env) {
+  if (String(env.REQUIRE_AUTH || "").toLowerCase() !== "true") return true;
+  const authHeader = request.headers.get("Authorization") || "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!bearer) return false;
+
+  const staticToken = String(env.AUTH_BEARER_TOKEN || "").trim();
+  if (staticToken && bearer === staticToken) return true;
+
+  const tokenRecord = IN_MEMORY_AUTH_TOKENS.get(bearer);
+  if (!tokenRecord) return false;
+  if (Date.now() > tokenRecord.exp) {
+    IN_MEMORY_AUTH_TOKENS.delete(bearer);
+    return false;
+  }
+  return true;
 }
 
 function getScripture() {

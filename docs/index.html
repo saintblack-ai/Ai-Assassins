@@ -42,6 +42,7 @@
       </div>
       <div class="controls">
         <button id="btnGenerate">Generate Brief</button>
+        <button id="btnLogin">Login</button>
       </div>
     </div>
 
@@ -90,6 +91,17 @@
   </div>
 
   <script src="./integrations.js"></script>
+  <dialog id="loginDialog" style="background:#0f1724;color:#e7eef7;border:1px solid #274463;border-radius:12px;padding:16px;max-width:360px;">
+    <form id="loginForm" method="dialog" style="display:grid;gap:8px;">
+      <strong>Operator Login</strong>
+      <input id="loginEmail" type="email" placeholder="email">
+      <input id="loginPassword" type="password" placeholder="password">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button value="cancel">Cancel</button>
+        <button id="btnLoginSubmit" value="default">Login</button>
+      </div>
+    </form>
+  </dialog>
   <script>
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./sw.js").catch((error) => {

@@ -20,6 +20,11 @@
     focusInput: "focusInput",
     toneInput: "toneInput",
     icsInput: "icsInput",
+    btnLogin: "btnLogin",
+    loginDialog: "loginDialog",
+    loginForm: "loginForm",
+    loginEmail: "loginEmail",
+    loginPassword: "loginPassword",
 
     overnightOverview: "overnightOverview",
     sp500: "sp500",
@@ -42,6 +47,7 @@
   const warnedMissing = new Set();
   let autoRefreshTimer = null;
   const ICS_STORAGE_KEY = "aia_ics_url";
+  const AUTH_TOKEN_KEY = "aia_auth_token";
 
   function $(id) {
     const el = document.getElementById(id);
@@ -288,9 +294,11 @@
     console.log("Fetching brief from URL:", url.toString());
 
     try {
+      const authToken = localStorage.getItem(AUTH_TOKEN_KEY) || "";
+      const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : {};
       let res = await fetch(url.toString(), {
         method: "GET",
-        headers: { Accept: "application/json" }
+        headers: { Accept: "application/json", ...authHeaders }
       });
 
       if (!res.ok) {
@@ -300,7 +308,8 @@
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Accept: "application/json"
+            Accept: "application/json",
+            ...authHeaders
           },
           body: JSON.stringify({
             lat: lat || null,
@@ -333,6 +342,23 @@
     }
   }
 
+  async function login(email, password) {
+    const base = API_BASE.replace(/\/$/, "");
+    const res = await fetch(`${base}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ email, password })
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Login failed: ${text || res.status}`);
+    }
+    const data = await res.json();
+    if (!data.token) throw new Error("Login response missing token");
+    localStorage.setItem(AUTH_TOKEN_KEY, data.token);
+    return data;
+  }
+
   function wireUp() {
     const btn = $(IDS.btnGenerate);
     if (btn) {
@@ -349,6 +375,27 @@
       icsInput.value = localStorage.getItem(ICS_STORAGE_KEY) || "";
       icsInput.addEventListener("change", () => {
         localStorage.setItem(ICS_STORAGE_KEY, icsInput.value.trim());
+      });
+    }
+    const loginBtn = $(IDS.btnLogin);
+    const loginDialog = $(IDS.loginDialog);
+    const loginForm = $(IDS.loginForm);
+    if (loginBtn && loginDialog) {
+      loginBtn.addEventListener("click", () => loginDialog.showModal());
+    }
+    if (loginForm) {
+      loginForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+          const email = $(IDS.loginEmail)?.value?.trim() || "";
+          const password = $(IDS.loginPassword)?.value || "";
+          const result = await login(email, password);
+          setError("");
+          console.log("[AI-Assassins] Login succeeded", result.email);
+          loginDialog?.close();
+        } catch (error) {
+          setError(error.message || "Login failed");
+        }
       });
     }
     setAutoRefreshStatus(Boolean(autoRefreshTimer));
