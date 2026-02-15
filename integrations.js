@@ -1,6 +1,7 @@
 // v9 integrations — live hooks (best-effort CORS)
 window.AIA=(()=>{
-  const fill=async(b,s)=>{await Promise.allSettled([weather(b,s),markets(b),btc(b),scripture(b,s),news(b,s),calendar(b,s)]);return b;};
+  const DEFAULT_MARKETS_WORKER_URL='https://archaios-proxy.quandrix357.workers.dev/markets';
+  const fill=async(b,s)=>{await Promise.allSettled([weather(b,s),marketsFromWorker(b,s),scripture(b,s),news(b,s),calendar(b,s)]);return b;};
   function sec(b,k){return b.sections.find(x=>x.key===k);}
 
   async function weather(b,s){
@@ -13,22 +14,44 @@ window.AIA=(()=>{
     sec(b,'weather').items=[`High / Low: ${j.daily?.temperature_2m_max?.[0]??'—'}° / ${j.daily?.temperature_2m_min?.[0]??'—'}°`,`Precip: ${j.daily?.precipitation_sum?.[0]??'—'} mm`];
   }
 
-  async function btc(b){
-    try{const r=await fetch('https://api.coindesk.com/v1/bpi/currentprice.json');if(!r.ok)return;const j=await r.json();const usd=j?.bpi?.USD?.rate_float;if(!usd)return;const M=sec(b,'markets');for(const row of M.kvs){if(row[0]==='BTC'){row[1]='$'+usd.toLocaleString(undefined,{maximumFractionDigits:0});}}}catch{}
-  }
-
-  async function markets(b){
+  async function marketsFromWorker(b,s){
     try{
-      const sy=encodeURIComponent('^GSPC,^IXIC,CL=F');
-      const r=await fetch(`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${sy}`);
+      const workerUrl=(s?.marketsWorkerUrl||s?.workerUrl||window.AIA_MARKETS_WORKER_URL||DEFAULT_MARKETS_WORKER_URL).trim();
+      if(!workerUrl) return;
+      const r=await fetch(workerUrl);
       if(!r.ok) return;
       const j=await r.json();
-      const map={}; for(const q of j.quoteResponse.result){ map[q.symbol]=q; }
-      const M=sec(b,'markets');
-      const rows={'S&P 500':map['^GSPC'],'Nasdaq':map['^IXIC'],'WTI':map['CL=F']};
-      M.kvs=Object.entries(rows).map(([n,q])=> q ? [n,`${q.regularMarketPrice?.toFixed(2)} (${(q.regularMarketChangePercent??0).toFixed(2)}%)`] : [n,'—'])
-            .concat(M.kvs.find(r=>r[0]==='BTC')?[]:[['BTC','—']]);
+      const m=j?.markets||{};
+      const values={SP500:m.SP500??null,NASDAQ:m.NASDAQ??null,BTC:m.BTC??null};
+      updateMarketsSection(b,values);
+      updateMarketDom(values);
     }catch{}
+  }
+
+  function formatMoney(v){
+    return Number.isFinite(v) ? '$'+Number(v).toLocaleString(undefined,{maximumFractionDigits:2}) : '—';
+  }
+
+  function updateMarketsSection(b,values){
+    const M=sec(b,'markets'); if(!M || !Array.isArray(M.kvs)) return;
+    const next=M.kvs.map(([name,val])=>{
+      if(name==='S&P 500' || name==='SP500') return ['S&P 500',formatMoney(values.SP500)];
+      if(name==='Nasdaq' || name==='NASDAQ') return ['Nasdaq',formatMoney(values.NASDAQ)];
+      if(name==='BTC') return ['BTC',formatMoney(values.BTC)];
+      return [name,val];
+    });
+    if(!next.find(r=>r[0]==='S&P 500')) next.push(['S&P 500',formatMoney(values.SP500)]);
+    if(!next.find(r=>r[0]==='Nasdaq')) next.push(['Nasdaq',formatMoney(values.NASDAQ)]);
+    if(!next.find(r=>r[0]==='BTC')) next.push(['BTC',formatMoney(values.BTC)]);
+    M.kvs=next;
+  }
+
+  function updateMarketDom(values){
+    const ids={SP500:values.SP500,NASDAQ:values.NASDAQ,BTC:values.BTC};
+    for(const [id,val] of Object.entries(ids)){
+      const el=document.getElementById(id);
+      if(el) el.textContent=formatMoney(val);
+    }
   }
 
   async function scripture(b,s){
