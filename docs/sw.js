@@ -1,4 +1,4 @@
-const CACHE_NAME = "ai-assassins-v2";
+const CACHE_NAME = "ai-assassins-v3";
 const CORE = [
   "./",
   "./index.html",
@@ -10,11 +10,13 @@ const CORE = [
 ];
 
 self.addEventListener("install", (event) => {
+  console.log("[SW] install", CACHE_NAME);
   event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(CORE)));
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
+  console.log("[SW] activate", CACHE_NAME);
   event.waitUntil(
     caches.keys().then((keys) =>
       Promise.all(
