@@ -34,6 +34,8 @@
     truthwaveCounter: "truthwaveCounter",
     topTasks: "topTasks",
     commandNote: "commandNote"
+    ,
+    pastBriefsList: "pastBriefsList"
   };
 
   const warnedMissing = new Set();
@@ -209,6 +211,56 @@
     renderExtras(data);
   }
 
+  function renderPastBriefs(items) {
+    const listEl = $(IDS.pastBriefsList);
+    if (!listEl) return;
+    listEl.innerHTML = "";
+    if (!Array.isArray(items) || !items.length) {
+      const li = document.createElement("li");
+      li.className = "muted";
+      li.textContent = "No saved briefs yet";
+      listEl.appendChild(li);
+      return;
+    }
+    for (const item of items) {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = `${item.timestamp || "Unknown time"} — ${item.id}`;
+      btn.style.width = "100%";
+      btn.style.textAlign = "left";
+      btn.addEventListener("click", async () => {
+        try {
+          const base = API_BASE.replace(/\/$/, "");
+          const url = new URL(`${base}/brief`);
+          url.searchParams.set("id", item.id);
+          const res = await fetch(url.toString(), { headers: { Accept: "application/json" } });
+          if (!res.ok) throw new Error(`Failed loading brief ${item.id}`);
+          const data = await res.json();
+          renderAll(data);
+        } catch (error) {
+          console.error("[AI-Assassins] failed to load past brief", error);
+          setError(error.message || "Failed loading past brief.");
+        }
+      });
+      li.appendChild(btn);
+      listEl.appendChild(li);
+    }
+  }
+
+  async function loadBriefHistory() {
+    try {
+      const base = API_BASE.replace(/\/$/, "");
+      const res = await fetch(`${base}/briefs`, { headers: { Accept: "application/json" } });
+      if (!res.ok) throw new Error("History unavailable");
+      const payload = await res.json();
+      renderPastBriefs(payload.items || []);
+    } catch (error) {
+      console.warn("[AI-Assassins] history fetch failed", error);
+      renderPastBriefs([]);
+    }
+  }
+
   function getInputs() {
     const lat = $(IDS.latInput)?.value?.trim() || "";
     const lon = $(IDS.lonInput)?.value?.trim() || "";
@@ -258,6 +310,7 @@
       const data = await res.json();
       console.log("Received brief JSON", data);
       renderAll(data);
+      loadBriefHistory();
       if (!autoRefreshTimer) {
         autoRefreshTimer = setInterval(fetchBrief, 600000);
       }
@@ -282,6 +335,7 @@
       console.warn("[AI-Assassins] Missing #btnGenerate in DOM");
     }
     setAutoRefreshStatus(Boolean(autoRefreshTimer));
+    loadBriefHistory();
   }
 
   if (document.readyState === "loading") {
