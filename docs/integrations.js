@@ -165,4 +165,5 @@ async function generateBrief() {
 window.addEventListener("DOMContentLoaded", () => {
   const btn = getNode(IDS.btnGenerate);
   if (btn) btn.addEventListener("click", generateBrief);
+  generateBrief();
 });
