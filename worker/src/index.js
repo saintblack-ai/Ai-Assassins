@@ -129,7 +129,7 @@ async function buildBrief(input, env) {
 async function getMarkets() {
   const [sp500, nasdaq, wti, btc] = await Promise.all([
     fetchMarketValue("^GSPC", "^spx"),
-    fetchMarketValue("^IXIC", "^ixic"),
+    fetchMarketValue("^IXIC", "^ndq"),
     fetchMarketValue("CL=F", "cl.f"),
     fetchCoinGeckoBTC()
   ]);
@@ -187,10 +187,23 @@ async function fetchStooqClose(symbol) {
 async function fetchCoinGeckoBTC() {
   try {
     const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd");
-    if (!r.ok) return null;
+    if (!r.ok) return fetchCoinbaseBTC();
     const j = await r.json();
     const v = Number(j?.bitcoin?.usd);
-    return Number.isFinite(v) ? v : null;
+    if (Number.isFinite(v)) return v;
+    return fetchCoinbaseBTC();
+  } catch {
+    return fetchCoinbaseBTC();
+  }
+}
+
+async function fetchCoinbaseBTC() {
+  try {
+    const r = await fetch("https://api.coinbase.com/v2/prices/spot?currency=USD");
+    if (!r.ok) return null;
+    const j = await r.json();
+    const amount = Number(j?.data?.amount);
+    return Number.isFinite(amount) ? amount : null;
   } catch {
     return null;
   }
