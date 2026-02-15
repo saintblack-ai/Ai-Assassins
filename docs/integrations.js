@@ -78,18 +78,48 @@ function setLoading(isLoading) {
   }
 }
 
-function collectPayload() {
+async function detectCoordinates() {
   const latRaw = getNode(IDS.latInput)?.value?.trim() || "";
   const lonRaw = getNode(IDS.lonInput)?.value?.trim() || "";
-  const focus = getNode(IDS.focusInput)?.value?.trim() || null;
-  const tone = getNode(IDS.toneInput)?.value?.trim() || null;
-
   const lat = latRaw === "" ? null : Number(latRaw);
   const lon = lonRaw === "" ? null : Number(lonRaw);
 
+  if (Number.isFinite(lat) && Number.isFinite(lon)) {
+    return { lat, lon };
+  }
+
+  if (!navigator.geolocation) {
+    return { lat: null, lon: null };
+  }
+
+  return new Promise((resolve) => {
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const geoLat = position?.coords?.latitude;
+        const geoLon = position?.coords?.longitude;
+        const latInput = getNode(IDS.latInput);
+        const lonInput = getNode(IDS.lonInput);
+        if (latInput && Number.isFinite(geoLat)) latInput.value = String(geoLat);
+        if (lonInput && Number.isFinite(geoLon)) lonInput.value = String(geoLon);
+        resolve({
+          lat: Number.isFinite(geoLat) ? geoLat : null,
+          lon: Number.isFinite(geoLon) ? geoLon : null
+        });
+      },
+      () => resolve({ lat: null, lon: null }),
+      { enableHighAccuracy: false, timeout: 7000, maximumAge: 600000 }
+    );
+  });
+}
+
+async function collectPayload() {
+  const { lat, lon } = await detectCoordinates();
+  const focus = getNode(IDS.focusInput)?.value?.trim() || null;
+  const tone = getNode(IDS.toneInput)?.value?.trim() || null;
+
   return {
-    lat: Number.isFinite(lat) ? lat : null,
-    lon: Number.isFinite(lon) ? lon : null,
+    lat,
+    lon,
     focus,
     tone
   };
@@ -139,7 +169,7 @@ async function generateBrief() {
   setLoading(true);
 
   try {
-    const payload = collectPayload();
+    const payload = await collectPayload();
 
     const res = await fetch(`${API_BASE}/api/brief`, {
       method: "POST",
