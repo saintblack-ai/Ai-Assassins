@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARCHAIOS CONTROL CENTER</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            abyss: "#05080a",
+            panel: "#0b1114",
+            neon: "#6dff7a",
+            neonSoft: "#1f9f3d",
+            muted: "#95a59c"
+          },
+          boxShadow: {
+            neon: "0 0 0 1px rgba(109,255,122,.35), 0 0 26px rgba(109,255,122,.15)"
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="min-h-screen bg-abyss text-slate-100">
+  <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    <header class="mb-6 rounded-xl border border-neonSoft/40 bg-panel/90 p-5 shadow-neon">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 class="text-xl font-semibold tracking-[0.22em] text-neon">ARCHAIOS CONTROL CENTER</h1>
+          <p class="mt-1 text-sm text-muted">Saint Black Intelligence System</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-xs uppercase tracking-[0.2em] text-muted">Current Tier</span>
+          <span id="tierBadge" class="rounded-full border border-neonSoft/60 bg-neonSoft/15 px-3 py-1 text-xs font-medium text-neon">Loading...</span>
+        </div>
+      </div>
+    </header>
+
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Current Tier</p>
+        <p id="statTier" class="mt-2 text-2xl font-semibold text-neon">-</p>
+      </article>
+      <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Daily Usage</p>
+        <p id="statUsage" class="mt-2 text-2xl font-semibold text-neon">-</p>
+      </article>
+      <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Revenue Events</p>
+        <p id="statRevenue" class="mt-2 text-2xl font-semibold text-neon">-</p>
+      </article>
+      <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Leads Captured</p>
+        <p id="statLeads" class="mt-2 text-2xl font-semibold text-neon">-</p>
+      </article>
+    </section>
+
+    <section class="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-3">
+      <article class="xl:col-span-2 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Command Center</h2>
+          <button id="btnGenerateBrief" class="rounded-md border border-neonSoft/60 bg-neonSoft/20 px-3 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Generate Brief</button>
+        </div>
+        <p id="briefStatus" class="mt-3 text-xs text-muted">Ready</p>
+        <pre id="terminalBox" class="mt-3 h-[26rem] overflow-auto rounded-lg border border-neonSoft/30 bg-black/50 p-3 text-xs leading-relaxed text-green-200">Awaiting command...</pre>
+      </article>
+
+      <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+        <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Daily Brief Viewer</h2>
+        <p id="dailyBriefMeta" class="mt-3 text-xs text-muted">Loading latest brief...</p>
+        <pre id="dailyBriefBox" class="mt-3 h-[26rem] overflow-auto rounded-lg border border-neonSoft/30 bg-black/45 p-3 text-xs leading-relaxed text-green-100">Loading...</pre>
+      </article>
+    </section>
+
+    <section class="mt-6 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Enterprise Upgrade</h2>
+          <p class="mt-1 text-sm text-muted">Activate Pro/Elite workflows and enterprise support paths.</p>
+        </div>
+        <a href="./pricing.html" class="inline-flex items-center rounded-md border border-neonSoft/60 bg-neonSoft/20 px-4 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Upgrade</a>
+      </div>
+    </section>
+
+    <div id="dashboardError" class="mt-4 hidden rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-sm text-red-200"></div>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+
+      const byId = (id) => {
+        const el = document.getElementById(id);
+        if (!el) console.warn(`[Dashboard] Missing element #${id}`);
+        return el;
+      };
+
+      const setText = (id, value) => {
+        const el = byId(id);
+        if (el) el.textContent = value;
+      };
+
+      const setError = (message) => {
+        const el = byId("dashboardError");
+        if (!el) return;
+        if (message) {
+          el.classList.remove("hidden");
+          el.textContent = message;
+        } else {
+          el.classList.add("hidden");
+          el.textContent = "";
+        }
+      };
+
+      async function fetchJson(path, init = {}) {
+        const url = `${API_BASE}${path}`;
+        const response = await fetch(url, {
+          ...init,
+          headers: {
+            Accept: "application/json",
+            ...(init.headers || {})
+          }
+        });
+
+        const text = await response.text();
+        let data;
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`Invalid JSON from ${path}`);
+        }
+
+        if (!response.ok) {
+          const msg = data?.error || `Request failed (${response.status})`;
+          throw new Error(msg);
+        }
+
+        return data;
+      }
+
+      function pretty(value) {
+        return JSON.stringify(value, null, 2);
+      }
+
+      async function loadStats() {
+        try {
+          const [me, metrics] = await Promise.all([
+            fetchJson("/api/me"),
+            fetchJson("/api/metrics")
+          ]);
+
+          const tier = String(me?.tier || "free").toUpperCase();
+          const usage = me?.usage_today ?? 0;
+          const usageLimit = me?.usage_limit === null ? "∞" : (me?.usage_limit ?? "-");
+          const revenueEvents = metrics?.revenue_events_count ?? 0;
+          const leads = metrics?.enterprise_leads_count ?? 0;
+
+          setText("tierBadge", tier);
+          setText("statTier", tier);
+          setText("statUsage", `${usage} / ${usageLimit}`);
+          setText("statRevenue", String(revenueEvents));
+          setText("statLeads", String(leads));
+          setError("");
+        } catch (error) {
+          console.error("[Dashboard] stats error", error);
+          setText("tierBadge", "UNAVAILABLE");
+          setText("statTier", "N/A");
+          setText("statUsage", "N/A");
+          setText("statRevenue", "N/A");
+          setText("statLeads", "N/A");
+          setError("Unable to load dashboard stats.");
+        }
+      }
+
+      async function loadDailyBrief() {
+        const box = byId("dailyBriefBox");
+        const meta = byId("dailyBriefMeta");
+        if (!box || !meta) return;
+
+        try {
+          const payload = await fetchJson("/api/brief/today");
+          meta.textContent = payload?.key ? `Source key: ${payload.key}` : "Latest strategic brief";
+          box.textContent = pretty(payload?.brief || payload);
+        } catch (error) {
+          console.error("[Dashboard] daily brief error", error);
+          meta.textContent = "Daily brief unavailable";
+          box.textContent = "No daily brief available.";
+        }
+      }
+
+      async function generateBrief() {
+        const btn = byId("btnGenerateBrief");
+        const status = byId("briefStatus");
+        const terminal = byId("terminalBox");
+        if (!btn || !status || !terminal) return;
+
+        btn.disabled = true;
+        status.textContent = "Generating brief...";
+        terminal.textContent = "Dispatching POST /api/brief ...";
+
+        try {
+          const payload = {
+            lat: null,
+            lon: null,
+            focus: "command-center",
+            tone: "strategic"
+          };
+
+          const result = await fetchJson("/api/brief", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          status.textContent = `Brief generated @ ${new Date().toISOString()}`;
+          terminal.textContent = pretty(result);
+          setError("");
+        } catch (error) {
+          console.error("[Dashboard] generate brief error", error);
+          status.textContent = "Generate failed";
+          terminal.textContent = `Error:\n${error.message || String(error)}`;
+          setError("Generate Brief failed. Ensure you are authenticated if your API requires auth.");
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      function wireEvents() {
+        const btn = byId("btnGenerateBrief");
+        if (btn) {
+          btn.addEventListener("click", generateBrief);
+        }
+      }
+
+      async function init() {
+        wireEvents();
+        await Promise.all([loadStats(), loadDailyBrief()]);
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
