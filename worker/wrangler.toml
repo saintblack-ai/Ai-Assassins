@@ -46,3 +46,18 @@ id = "22942df275bd4797b34b93224e8738c7"
 # Cloudflare Worker telemetry
 [observability]
 enabled = true
+
+[triggers]
+crons = ["0 8 * * *"]
+
+[[kv_namespaces]]
+binding = "BRIEF_LOG"
+id = "be5f592bf9cc4c56aed50479e67f20e0"
+
+[[kv_namespaces]]
+binding = "DAILY_BRIEF_LOG"
+id = "dd173538e82644268e037befa8836ae4"
+
+[[kv_namespaces]]
+binding = "COMMAND_LOG"
+id = "59ba027565954a76b9fb90c7e4f714fa"

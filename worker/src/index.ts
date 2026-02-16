@@ -2,6 +2,20 @@ import legacy from "./legacy.js";
 import { getAuthContext } from "./middleware/auth";
 import { isRateLimited } from "./middleware/rateLimit";
 import { handleBrief } from "./handlers/brief";
+import { generateBrief } from "./briefing";
+import { sendBriefEmail } from "./email";
+import {
+  buildDailyBrief,
+  ensureTodayDailyBrief,
+  listRecentDailyBriefs,
+  saveDailyBrief,
+  todayIsoDateUTC,
+} from "./services/dailyBrief";
+import {
+  ensureTodayCommandBrief,
+  getMetricsSnapshot,
+  listCommandHistory,
+} from "./services/commandIntel";
 import {
   getTier,
   setTier,
@@ -10,21 +24,44 @@ import {
   validateRevenueCatSecret,
   type Tier
 } from "./services/subscription";
-import { getUsage, listBriefHistory, logRevenueEvent, saveLead } from "./services/usage";
+import {
+  getUsage,
+  listBriefHistory,
+  logRevenueEvent,
+  logSystemBriefGenerated,
+  saveLead,
+} from "./services/usage";
 
 type Env = {
   ALLOWED_ORIGINS?: string;
   USER_STATE?: KVNamespace;
   USAGE_STATE?: KVNamespace;
   REVENUE_LOG?: KVNamespace;
+  DAILY_BRIEF_LOG?: KVNamespace;
+  COMMAND_LOG?: KVNamespace;
+  BRIEF_LOG?: KVNamespace;
   LEADS?: KVNamespace;
   REVENUECAT_WEBHOOK_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  ADMIN_TOKEN?: string;
+  BRIEF_TIMEZONE?: string;
+  BRIEF_SEND_HHMM?: string;
+  BRIEF_EMAIL_TO?: string;
+  FROM_EMAIL?: string;
+  RESEND_API_KEY?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_PRICE_PRO?: string;
   STRIPE_PRICE_ELITE?: string;
   ENTERPRISE_DAILY_LIMIT?: string;
+};
+
+type BriefCfg = {
+  userId: string;
+  BRIEF_TIMEZONE: string;
+  BRIEF_SEND_HHMM: string;
+  BRIEF_EMAIL_TO: string;
+  updatedAt: string;
 };
 
 const DEFAULT_ALLOWED_ORIGIN = "https://saintblack-ai.github.io";
@@ -68,6 +105,42 @@ function withSecurityHeaders(response: Response, env: Env): Response {
   headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
   for (const [k, v] of Object.entries(SECURITY_HEADERS)) headers.set(k, v);
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function requireAdmin(request: Request, env: Env): boolean {
+  const auth = request.headers.get("Authorization") || "";
+  const token = String(env.ADMIN_TOKEN || "").trim();
+  if (!token) return false;
+  return auth === `Bearer ${token}`;
+}
+
+function defaultBriefCfg(env: Env, userId: string): BriefCfg {
+  return {
+    userId,
+    BRIEF_TIMEZONE: env.BRIEF_TIMEZONE || "America/Chicago",
+    BRIEF_SEND_HHMM: String(env.BRIEF_SEND_HHMM || "0700").replace(":", ""),
+    BRIEF_EMAIL_TO: env.BRIEF_EMAIL_TO || "",
+    updatedAt: new Date().toISOString(),
+  };
+}
+
+async function readBriefCfg(env: Env, userId: string): Promise<BriefCfg> {
+  const fallback = defaultBriefCfg(env, userId);
+  if (!env.USER_STATE) return fallback;
+  const raw = await env.USER_STATE.get(`briefcfg:${userId}`);
+  if (!raw) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      userId,
+      BRIEF_TIMEZONE: parsed.BRIEF_TIMEZONE || fallback.BRIEF_TIMEZONE,
+      BRIEF_SEND_HHMM: String(parsed.BRIEF_SEND_HHMM || fallback.BRIEF_SEND_HHMM).replace(":", ""),
+      BRIEF_EMAIL_TO: parsed.BRIEF_EMAIL_TO || fallback.BRIEF_EMAIL_TO,
+      updatedAt: parsed.updatedAt || fallback.updatedAt,
+    };
+  } catch {
+    return fallback;
+  }
 }
 
 async function handleUnifiedWebhook(request: Request, env: Env): Promise<Response> {
@@ -159,6 +232,94 @@ export default {
     try {
       if ((url.pathname === "/api/webhook" || url.pathname === "/revenuecat/webhook") && request.method === "POST") {
         return await handleUnifiedWebhook(request, env);
+      }
+
+      if (url.pathname === "/api/command-brief" && request.method === "GET") {
+        if (!env.COMMAND_LOG) return json({ error: "COMMAND_LOG KV not bound" }, 500, env);
+        const today = todayIsoDateUTC();
+        const result = await ensureTodayCommandBrief(env, today);
+        if (result.created) {
+          await logSystemBriefGenerated(env, {
+            date: today,
+            source: "api",
+            key: result.key,
+            success: true,
+          });
+        }
+        return json({ success: true, created: result.created, key: result.key, brief: result.brief }, 200, env);
+      }
+
+      if (url.pathname === "/api/command-history" && request.method === "GET") {
+        if (!env.COMMAND_LOG) return json({ error: "COMMAND_LOG KV not bound" }, 500, env);
+        const items = await listCommandHistory(env, 14);
+        return json({ success: true, items }, 200, env);
+      }
+
+      if (url.pathname === "/api/metrics" && request.method === "GET") {
+        const metrics = await getMetricsSnapshot(env);
+        return json(
+          {
+            success: true,
+            usage_total_count: metrics.usage_total_count,
+            revenue_events_count: metrics.revenue_events_count,
+            enterprise_leads_count: metrics.enterprise_leads_count,
+            tier_distribution: metrics.tier_distribution,
+          },
+          200,
+          env
+        );
+      }
+
+      if (url.pathname === "/api/brief/today" && request.method === "GET") {
+        if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
+        const today = todayIsoDateUTC();
+        const result = await ensureTodayDailyBrief(env, today);
+        if (result.created) {
+          await logSystemBriefGenerated(env, {
+            date: today,
+            source: "api",
+            key: result.key,
+            success: true,
+          });
+        }
+        return json({ success: true, created: result.created, key: result.key, brief: result.brief }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/history" && request.method === "GET") {
+        if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
+        const items = await listRecentDailyBriefs(env, 7);
+        return json({ success: true, items }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/test" && request.method === "GET") {
+        if (!requireAdmin(request, env)) return json({ error: "unauthorized" }, 401, env);
+        const userId = String(url.searchParams.get("userId") || "colonel").trim() || "colonel";
+        const cfg = await readBriefCfg(env, userId);
+        const brief = await generateBrief({ ...env, BRIEF_TIMEZONE: cfg.BRIEF_TIMEZONE }, { timezone: cfg.BRIEF_TIMEZONE });
+        return json({ success: true, userId, cfg, brief }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/config" && request.method === "GET") {
+        if (!requireAdmin(request, env)) return json({ error: "unauthorized" }, 401, env);
+        const userId = String(url.searchParams.get("userId") || "colonel").trim() || "colonel";
+        const cfg = await readBriefCfg(env, userId);
+        return json({ success: true, cfg }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/config" && request.method === "POST") {
+        if (!requireAdmin(request, env)) return json({ error: "unauthorized" }, 401, env);
+        const body = await request.json().catch(() => ({} as any));
+        const userId = String(body.userId || "colonel").trim() || "colonel";
+        const cfg = {
+          userId,
+          BRIEF_TIMEZONE: body.BRIEF_TIMEZONE || env.BRIEF_TIMEZONE || "America/Chicago",
+          BRIEF_SEND_HHMM: String(body.BRIEF_SEND_HHMM || env.BRIEF_SEND_HHMM || "0700").replace(":", ""),
+          BRIEF_EMAIL_TO: body.BRIEF_EMAIL_TO || env.BRIEF_EMAIL_TO || "",
+          updatedAt: new Date().toISOString(),
+        };
+        if (!env.USER_STATE) return json({ error: "USER_STATE KV not bound" }, 500, env);
+        await env.USER_STATE.put(`briefcfg:${userId}`, JSON.stringify(cfg));
+        return json({ success: true, cfg }, 200, env);
       }
 
       if (url.pathname === "/api/user/status" && request.method === "GET") {
@@ -291,5 +452,46 @@ export default {
     } catch {
       return blocked(403, env);
     }
-  }
+  },
+
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    try {
+      if (!env.DAILY_BRIEF_LOG) {
+        console.log("scheduled daily brief skipped: DAILY_BRIEF_LOG KV not bound");
+        return;
+      }
+
+      const date = todayIsoDateUTC();
+      const brief = buildDailyBrief(date);
+      const key = await saveDailyBrief(env, brief);
+      await logSystemBriefGenerated(env, {
+        date,
+        source: "scheduled",
+        key,
+        success: true,
+      });
+
+      if (env.COMMAND_LOG) {
+        const command = await ensureTodayCommandBrief(env, date);
+        await logSystemBriefGenerated(env, {
+          date,
+          source: "scheduled",
+          key: command.key,
+          success: true,
+        });
+      }
+
+      // Keep existing Phase 2 email behavior available without forcing it.
+      const cfg = await readBriefCfg(env, "colonel");
+      const schedEnv = {
+        ...env,
+        BRIEF_TIMEZONE: cfg.BRIEF_TIMEZONE,
+        BRIEF_EMAIL_TO: cfg.BRIEF_EMAIL_TO || env.BRIEF_EMAIL_TO,
+      };
+      const legacyBrief = await generateBrief(schedEnv, { timezone: cfg.BRIEF_TIMEZONE });
+      await sendBriefEmail(schedEnv, legacyBrief);
+    } catch (error) {
+      console.error("scheduled brief job failed", error);
+    }
+  },
 };

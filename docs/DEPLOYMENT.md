@@ -1,71 +1,108 @@
 # AI Assassins Deployment Guide
 
-## 1) GitHub auth fix for workflow pushes
+This runbook deploys the web app from GitHub Pages and the API from Cloudflare Workers.
 
-### Option A: Personal Access Token (HTTPS)
-Create a PAT with scopes:
-- `repo`
-- `workflow`
+## 1) Set frontend API base
+Published frontend files must call the deployed Worker domain:
 
-Then set remote and push:
-```bash
-cd /Users/quandrixblackburn/projects/Ai-Assassins
-git remote set-url origin https://<GITHUB_USERNAME>:<PAT_WITH_REPO_WORKFLOW>@github.com/saintblack-ai/Ai-Assassins.git
-git push origin main
+- `/Users/quandrixblackburn/projects/Ai-Assassins/docs/integrations.js`
+- `/Users/quandrixblackburn/projects/Ai-Assassins/docs/pricing.js`
+
+Use:
+
+```js
+const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
 ```
 
-### Option B: SSH (recommended long-term)
-```bash
-ssh-keygen -t ed25519 -C "you@example.com"
-cat ~/.ssh/id_ed25519.pub
-```
-Add the public key in GitHub -> Settings -> SSH and GPG keys.
-Then:
-```bash
-git remote set-url origin git@github.com:saintblack-ai/Ai-Assassins.git
-git push origin main
-```
+## 2) Deploy Cloudflare Worker
 
-## 2) Cloudflare Worker deployment
 ```bash
 cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
 npx wrangler deploy
 ```
 
-Required secrets:
+Expected output includes:
+
+- `Deployed ai-assassins-api triggers`
+- `https://ai-assassins-api.quandrix357.workers.dev`
+
+## 3) Required Wrangler secrets
+Set secrets once per environment:
+
 ```bash
+cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
 npx wrangler secret put OPENAI_API_KEY
 npx wrangler secret put STRIPE_SECRET_KEY
 npx wrangler secret put REVENUECAT_WEBHOOK_SECRET
+npx wrangler secret put ADMIN_TOKEN
+npx wrangler secret put RESEND_API_KEY
 ```
 
-Required env vars (wrangler vars or dashboard):
-- `ALLOWED_ORIGINS=https://saintblack-ai.github.io`
-- `STRIPE_PRICE_PRO`
-- `STRIPE_PRICE_ELITE`
-- `ENTERPRISE_DAILY_LIMIT` (optional)
+Notes:
 
-## 3) KV namespace creation
+- `OPENAI_API_KEY` is required for `/api/brief`.
+- `STRIPE_SECRET_KEY` is required for `/api/checkout`.
+- If Stripe keys are missing, checkout returns a friendly `Stripe not configured` error.
+- If `REVENUECAT_WEBHOOK_SECRET` is missing, webhook validation is skipped by design.
+
+## 4) Required Wrangler vars (non-secret)
+In `worker/wrangler.toml` and/or Cloudflare dashboard env vars:
+
+- `ALLOWED_ORIGINS=https://saintblack-ai.github.io`
+- `OPENAI_MODEL=gpt-4.1-mini`
+- `STRIPE_PRICE_PRO=<price_id>`
+- `STRIPE_PRICE_ELITE=<price_id>`
+- `ENTERPRISE_DAILY_LIMIT=<optional integer>`
+- `WORKER_VERSION=<optional display version>`
+- `FROM_EMAIL=<sender for Resend>`
+
+## 5) KV namespaces and bindings
+Required bindings in `worker/wrangler.toml`:
+
+- `USER_STATE`
+- `USAGE_STATE`
+- `REVENUE_LOG`
+- `LEADS`
+- `DAILY_BRIEF_LOG`
+- `COMMAND_LOG`
+
+Create missing namespaces:
+
 ```bash
+cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
 npx wrangler kv namespace create USER_STATE
 npx wrangler kv namespace create USAGE_STATE
 npx wrangler kv namespace create REVENUE_LOG
 npx wrangler kv namespace create LEADS
+npx wrangler kv namespace create DAILY_BRIEF_LOG
+npx wrangler kv namespace create COMMAND_LOG
 ```
-Update IDs in `wrangler.toml`.
 
-## 4) GitHub Pages deployment
-Use branch `main`, folder `/docs`.
-If Actions-based Pages workflow is enabled, pushing `main` auto-deploys.
+## 6) Cron schedules
+Current schedule:
 
-## 5) Mobile wrapper build
+- `0 8 * * *` (daily at 08:00 UTC)
+
+## 7) GitHub Pages deployment
+GitHub Pages should publish:
+
+- Branch: `main`
+- Folder: `/docs`
+
+After pushing to `main`, verify site:
+
+- `https://saintblack-ai.github.io/Ai-Assassins/`
+
+## 8) Stripe webhook setup
+Configure webhook destination in Stripe dashboard:
+
+- Endpoint URL: `https://ai-assassins-api.quandrix357.workers.dev/api/webhook`
+- Events: checkout/session completed + subscription lifecycle events
+
+## 9) Command intelligence endpoint checks
+
 ```bash
-cd /Users/quandrixblackburn/projects/Ai-Assassins
-npm run mobile:release:prep
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/command-brief
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/command-history
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/metrics
 ```
-
-## 6) App Store + Play submission
-1. Build signed iOS archive in Xcode -> upload to TestFlight.
-2. Build Android AAB -> upload to Play Internal Test.
-3. Attach legal/policy URLs in store metadata.
-4. Verify billing, lead capture, and tier enforcement before production rollout.
