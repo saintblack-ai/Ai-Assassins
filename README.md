@@ -12,6 +12,9 @@
 - Optional: set **lat,lon** (weather), **NewsAPI key** (headlines).
 - Tap **Generate Brief**.
 
+## Documentation
+- [Setup, Deployment & Monetization Guide](docs/setup-deployment-monetization.md)
+
 ## Fixes in v9
 - Hardened renderer: news links render as real anchors (no raw `<a>` text).
 - All sections interactive; app-shell offline via service worker.
