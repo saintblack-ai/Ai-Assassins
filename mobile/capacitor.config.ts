@@ -6,7 +6,10 @@ const config: CapacitorConfig = {
   webDir: '../docs',
   bundledWebRuntime: false,
   server: {
-    cleartext: false
+    cleartext: false,
+    androidScheme: "https",
+    hostname: "saintblack-ai.github.io",
+    allowNavigation: ["saintblack-ai.github.io"]
   },
   ios: {
     contentInset: 'always',

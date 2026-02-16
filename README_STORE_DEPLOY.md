@@ -51,6 +51,12 @@ npx wrangler secret put REVENUECAT_WEBHOOK_SECRET
 npx wrangler deploy
 ```
 
+Required production endpoints:
+- `POST /api/brief`
+- `GET /api/user/status`
+- `GET /api/briefs`
+- `DELETE /api/user/data`
+
 Optional durable storage:
 - Bind D1 as `BRIEFS_DB`
 - Bind KV as `BRIEFS_KV` fallback
@@ -118,3 +124,4 @@ Resolution checklist:
 - iOS: TestFlight internal group first, then external group.
 - Android: Internal track first, then closed/open testing.
 - Validate entitlements with sandbox/test users.
+- Validate user data deletion flow via `DELETE /api/user/data`.

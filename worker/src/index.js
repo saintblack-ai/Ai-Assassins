@@ -94,7 +94,7 @@ export default {
         return json(getScripture());
       }
 
-      if (request.method === "GET" && url.pathname === "/api/me") {
+      if (request.method === "GET" && (url.pathname === "/api/me" || url.pathname === "/api/user/status")) {
         const auth = getAuthContext(request);
         const profile = auth.userId ? await getOrCreateUserProfile(env, auth.userId, auth.email || null) : null;
         const tier = auth.userId ? await resolveUserTier(env, auth.userId) : "free";
@@ -110,21 +110,32 @@ export default {
         });
       }
 
-      if (request.method === "GET" && url.pathname === "/briefs") {
-        const items = await listBriefs(env, 50);
+      if (request.method === "GET" && (url.pathname === "/briefs" || url.pathname === "/api/briefs")) {
+        const auth = getAuthContext(request);
+        if (!auth.userId && String(env.REQUIRE_AUTH || "").toLowerCase() === "true") {
+          return json({ error: "Authentication required" }, 401);
+        }
+        const items = await listBriefs(env, 50, auth.userId);
         return json({ items });
       }
 
       if (request.method === "GET" && url.pathname === "/brief") {
         const id = url.searchParams.get("id");
         if (id) {
-          const stored = await getBriefById(env, id);
+          const auth = getAuthContext(request);
+          if (!auth.userId && String(env.REQUIRE_AUTH || "").toLowerCase() === "true") {
+            return json({ error: "Authentication required" }, 401);
+          }
+          const stored = await getBriefById(env, id, auth.userId);
           if (!stored) return json({ error: "Brief not found" }, 404);
           return json(stored);
         }
 
         const validated = validateBriefQuery(url.searchParams);
         if (!validated.ok) return json({ error: validated.error }, 400);
+        if (!isAllowedWriteOrigin(request, env)) {
+          return json({ error: "Origin not allowed" }, 403);
+        }
         if (!isAuthorizedWrite(request, env)) {
           return json({ error: "Unauthorized" }, 401);
         }
@@ -132,7 +143,7 @@ export default {
         const usageCheck = await enforceUsageLimit(env, auth.userId);
         if (!usageCheck.ok) return json({ error: usageCheck.error, tier: usageCheck.tier, usage: usageCheck.usage, quota: usageCheck.quota }, 402);
         const brief = await buildBrief(validated.value, env);
-        const saved = await saveBrief(env, brief);
+        const saved = await saveBrief(env, brief, auth.userId);
         if (auth.userId) await incrementUsage(env, auth.userId);
         return json({ id: saved.id, ...brief });
       }
@@ -233,6 +244,9 @@ export default {
         if (!validated.ok) {
           return json({ error: validated.error }, 400);
         }
+        if (!isAllowedWriteOrigin(request, env)) {
+          return json({ error: "Origin not allowed" }, 403);
+        }
         if (!isAuthorizedWrite(request, env)) {
           return json({ error: "Unauthorized" }, 401);
         }
@@ -241,9 +255,19 @@ export default {
         if (!usageCheck.ok) return json({ error: usageCheck.error, tier: usageCheck.tier, usage: usageCheck.usage, quota: usageCheck.quota }, 402);
 
         const brief = await buildBrief(validated.value, env);
-        const saved = await saveBrief(env, brief);
+        const saved = await saveBrief(env, brief, auth.userId);
         if (auth.userId) await incrementUsage(env, auth.userId);
         return json({ id: saved.id, ...brief });
+      }
+
+      if (request.method === "DELETE" && url.pathname === "/api/user/data") {
+        if (!isAllowedWriteOrigin(request, env)) {
+          return json({ error: "Origin not allowed" }, 403);
+        }
+        const auth = getAuthContext(request);
+        if (!auth.userId) return json({ error: "Authentication required" }, 401);
+        await deleteUserData(env, auth.userId);
+        return json({ ok: true, deleted_user_id: auth.userId });
       }
 
       return json({ error: "Not found" }, 404);
@@ -435,7 +459,7 @@ function weatherFallback() {
   };
 }
 
-async function saveBrief(env, brief) {
+async function saveBrief(env, brief, userId = null) {
   const id = crypto.randomUUID();
   const timestamp = new Date().toISOString();
   const payload = JSON.stringify(brief);
@@ -446,24 +470,45 @@ async function saveBrief(env, brief) {
       .prepare("INSERT INTO briefs (id, timestamp, json) VALUES (?1, ?2, ?3)")
       .bind(id, timestamp, payload)
       .run();
+    if (userId) {
+      await env.BRIEFS_DB
+        .prepare("INSERT INTO brief_owners (brief_id, user_id, timestamp) VALUES (?1, ?2, ?3)")
+        .bind(id, userId, timestamp)
+        .run();
+    }
   } else if (env.BRIEFS_KV) {
     await env.BRIEFS_KV.put(`brief:${id}`, payload);
     const rawIndex = await env.BRIEFS_KV.get("briefs:index");
     const parsed = rawIndex ? JSON.parse(rawIndex) : [];
     const next = [{ id, timestamp }, ...parsed].slice(0, 200);
     await env.BRIEFS_KV.put("briefs:index", JSON.stringify(next));
+    if (userId) {
+      const userIndexKey = `briefs:user:${userId}`;
+      const rawUserIndex = await env.BRIEFS_KV.get(userIndexKey);
+      const userParsed = rawUserIndex ? JSON.parse(rawUserIndex) : [];
+      const userNext = [{ id, timestamp }, ...userParsed].slice(0, 200);
+      await env.BRIEFS_KV.put(userIndexKey, JSON.stringify(userNext));
+      await env.BRIEFS_KV.put(`brief_owner:${id}`, userId);
+    }
   } else {
-    IN_MEMORY_BRIEFS.set(id, { id, timestamp, json: payload });
+    IN_MEMORY_BRIEFS.set(id, { id, timestamp, userId: userId || null, json: payload });
   }
 
   return { id, timestamp };
 }
 
-async function getBriefById(env, id) {
+async function getBriefById(env, id, userId = null) {
   if (!id) return null;
 
   if (env.BRIEFS_DB) {
     await ensureBriefTables(env);
+    if (userId) {
+      const owned = await env.BRIEFS_DB
+        .prepare("SELECT brief_id FROM brief_owners WHERE brief_id = ?1 AND user_id = ?2")
+        .bind(id, userId)
+        .first();
+      if (!owned) return null;
+    }
     const row = await env.BRIEFS_DB
       .prepare("SELECT id, timestamp, json FROM briefs WHERE id = ?1")
       .bind(id)
@@ -471,6 +516,10 @@ async function getBriefById(env, id) {
     if (!row) return null;
     return { id: row.id, timestamp: row.timestamp, ...JSON.parse(row.json) };
   } else if (env.BRIEFS_KV) {
+    if (userId) {
+      const owner = await env.BRIEFS_KV.get(`brief_owner:${id}`);
+      if (owner !== userId) return null;
+    }
     const payload = await env.BRIEFS_KV.get(`brief:${id}`);
     if (!payload) return null;
     return { id, ...JSON.parse(payload) };
@@ -478,25 +527,33 @@ async function getBriefById(env, id) {
 
   const row = IN_MEMORY_BRIEFS.get(id);
   if (!row) return null;
+  if (userId && row.userId !== userId) return null;
   return { id: row.id, timestamp: row.timestamp, ...JSON.parse(row.json) };
 }
 
-async function listBriefs(env, limit) {
+async function listBriefs(env, limit, userId = null) {
   if (env.BRIEFS_DB) {
     await ensureBriefTables(env);
+    if (!userId) return [];
     const res = await env.BRIEFS_DB
-      .prepare("SELECT id, timestamp FROM briefs ORDER BY timestamp DESC LIMIT ?1")
-      .bind(limit)
+      .prepare(
+        "SELECT b.id AS id, b.timestamp AS timestamp FROM briefs b INNER JOIN brief_owners o ON o.brief_id = b.id WHERE o.user_id = ?1 ORDER BY b.timestamp DESC LIMIT ?2"
+      )
+      .bind(userId, limit)
       .all();
     return Array.isArray(res?.results) ? res.results : [];
   } else if (env.BRIEFS_KV) {
-    const rawIndex = await env.BRIEFS_KV.get("briefs:index");
+    if (!userId) return [];
+    const rawIndex = await env.BRIEFS_KV.get(`briefs:user:${userId}`);
     const parsed = rawIndex ? JSON.parse(rawIndex) : [];
     return Array.isArray(parsed) ? parsed.slice(0, limit) : [];
   }
 
+  if (!userId) return [];
   return Array.from(IN_MEMORY_BRIEFS.entries())
-    .map(([id, row]) => ({ id, timestamp: row.timestamp }))
+    .map(([id, row]) => ({ id, timestamp: row.timestamp, userId: row.userId }))
+    .filter((row) => row.userId === userId)
+    .map(({ id, timestamp }) => ({ id, timestamp }))
     .sort((a, b) => String(b.timestamp).localeCompare(String(a.timestamp)))
     .slice(0, limit);
 }
@@ -507,7 +564,60 @@ async function ensureBriefTables(env) {
   await env.BRIEFS_DB.exec(
     "CREATE TABLE IF NOT EXISTS briefs (id TEXT PRIMARY KEY, timestamp TEXT NOT NULL, json TEXT NOT NULL);"
   );
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS brief_owners (brief_id TEXT PRIMARY KEY, user_id TEXT NOT NULL, timestamp TEXT NOT NULL);"
+  );
   briefTableReady = true;
+}
+
+async function deleteUserData(env, userId) {
+  if (!userId) return;
+
+  if (env.BRIEFS_DB) {
+    await ensureBriefTables(env);
+    await ensureUsageTables(env);
+    const owned = await env.BRIEFS_DB
+      .prepare("SELECT brief_id FROM brief_owners WHERE user_id = ?1")
+      .bind(userId)
+      .all();
+    const briefIds = Array.isArray(owned?.results) ? owned.results.map((x) => x.brief_id).filter(Boolean) : [];
+    if (briefIds.length) {
+      const placeholders = briefIds.map(() => "?").join(",");
+      await env.BRIEFS_DB.prepare(`DELETE FROM briefs WHERE id IN (${placeholders})`).bind(...briefIds).run();
+    }
+    await env.BRIEFS_DB.prepare("DELETE FROM brief_owners WHERE user_id = ?1").bind(userId).run();
+    await env.BRIEFS_DB.prepare("DELETE FROM usage WHERE user_id = ?1").bind(userId).run();
+    await env.BRIEFS_DB.prepare("DELETE FROM user_access WHERE user_id = ?1").bind(userId).run();
+    await env.BRIEFS_DB.prepare("DELETE FROM users WHERE id = ?1").bind(userId).run();
+    return;
+  }
+
+  if (env.BRIEFS_KV) {
+    const userBriefsKey = `briefs:user:${userId}`;
+    const rawUserBriefs = await env.BRIEFS_KV.get(userBriefsKey);
+    const userBriefs = rawUserBriefs ? JSON.parse(rawUserBriefs) : [];
+    if (Array.isArray(userBriefs)) {
+      for (const item of userBriefs) {
+        const id = item?.id;
+        if (!id) continue;
+        await env.BRIEFS_KV.delete(`brief:${id}`);
+        await env.BRIEFS_KV.delete(`brief_owner:${id}`);
+      }
+    }
+    await env.BRIEFS_KV.delete(userBriefsKey);
+    await env.BRIEFS_KV.delete(`user:${userId}`);
+    await env.BRIEFS_KV.delete(`tier:${userId}`);
+    await env.BRIEFS_KV.delete(`tier_payload:${userId}`);
+    return;
+  }
+
+  for (const [id, row] of IN_MEMORY_BRIEFS.entries()) {
+    if (row?.userId === userId) IN_MEMORY_BRIEFS.delete(id);
+  }
+  for (const key of Array.from(IN_MEMORY_USAGE.keys())) {
+    if (key.startsWith(`usage:${userId}:`)) IN_MEMORY_USAGE.delete(key);
+  }
+  IN_MEMORY_SUBSCRIPTIONS.delete(userId);
 }
 
 function validateLogin(email, password, env) {
@@ -544,6 +654,24 @@ function isAuthorizedWrite(request, env) {
     return false;
   }
   return true;
+}
+
+function isAllowedWriteOrigin(request, env) {
+  const origin = String(request.headers.get("Origin") || "").trim();
+  if (!origin) return true; // Native apps and non-browser clients may not send Origin.
+
+  const configured = String(env.ALLOWED_ORIGINS || "").trim();
+  const defaults = [
+    "https://saintblack-ai.github.io",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080"
+  ];
+  const allowList = (configured ? configured.split(",") : defaults)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  return allowList.includes(origin);
 }
 
 function getAuthContext(request) {
