@@ -1,61 +1,122 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AI Assassins Pricing</title>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>AI Assassins — Pricing</title>
+  <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon-192.png">
+  <meta name="theme-color" content="#0b0f13"/>
   <style>
-    :root { --bg:#070b10; --card:#101923; --border:#274463; --text:#e7eef7; --muted:#9fb0c5; --accent:#73d8ff; }
-    * { box-sizing:border-box; }
-    body { margin:0; background:radial-gradient(circle at 20% 0%, #0f1724 0%, var(--bg) 45%), var(--bg); color:var(--text); font-family:"JetBrains Mono","Consolas",monospace; }
-    .wrap { max-width:960px; margin:0 auto; padding:24px 16px 40px; }
-    .back { display:inline-block; margin-bottom:12px; color:var(--accent); text-decoration:none; }
-    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
-    .card { background:linear-gradient(180deg, #0e1825 0%, #0b1119 100%); border:1px solid var(--border); border-radius:12px; padding:14px; }
-    h1 { margin:4px 0 8px; font-size:1.4rem; }
-    h2 { margin:0 0 8px; font-size:1.1rem; }
-    ul { margin:0; padding-left:18px; }
-    .price { font-size:1.6rem; margin:8px 0 10px; }
-    .muted { color:var(--muted); font-size:.9rem; }
-    button { border-radius:10px; border:1px solid var(--border); background:#101b29; color:var(--text); padding:10px 14px; cursor:pointer; width:100%; margin-top:12px; }
-    .error { display:none; margin-top:10px; border:1px solid #8a3b3b; background:#2a1515; border-radius:10px; padding:10px; }
-    .loading { display:none; margin-top:8px; color:var(--accent); }
+    :root { --bg:#070b10; --card:#101923; --border:#274463; --text:#e7eef7; --muted:#9fb0c5; --accent:#73d8ff; --good:rgba(115,216,255,.14); }
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(circle at 20% 0%,#0f1724 0%,var(--bg) 55%,var(--bg) 100%);color:var(--text);font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
+    a{color:var(--accent);text-decoration:none}
+    .wrap{max-width:1080px;margin:0 auto;padding:22px}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+    .title{font-size:1.4rem;font-weight:800;letter-spacing:.2px}
+    .sub{color:var(--muted);font-size:.95rem;margin-top:4px}
+    .btn{background:#0b1320;border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer}
+    .btn.primary{background:linear-gradient(180deg,#0e2235,#0b1320);border-color:#2f6a93;box-shadow:0 0 0 1px rgba(115,216,255,.08)}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px;margin-top:16px}
+    .card{background:linear-gradient(180deg,#0d1825,#0b111a);border:1px solid var(--border);border-radius:16px;padding:14px}
+    .tag{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);padding:6px 10px;border-radius:999px;color:var(--muted);font-size:.86rem}
+    .price{font-size:2rem;font-weight:900;margin:10px 0 2px}
+    .per{color:var(--muted);font-size:.9rem}
+    ul{margin:10px 0 0;padding-left:18px;color:var(--text)}
+    li{margin:6px 0;color:var(--text)}
+    .muted{color:var(--muted)}
+    .fine{font-size:.82rem;color:var(--muted);margin-top:10px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px}
+    .footer{margin-top:18px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .faq{margin-top:14px}
+    .q{font-weight:800;margin-top:10px}
+    .notice{display:none;margin-top:12px;border:1px solid var(--border);background:var(--good);padding:10px;border-radius:12px}
+    .loading{display:none;margin-top:8px;color:var(--accent)}
+    @media (max-width: 840px){ .grid{grid-template-columns:1fr} }
   </style>
 </head>
 <body>
   <div class="wrap">
-    <a class="back" href="./index.html">← Back to Briefing</a>
-    <h1>Choose Your Access Tier</h1>
-    <p class="muted">Upgrade to unlock unlimited brief generation and premium workflows.</p>
-
-    <div class="grid">
-      <section class="card">
-        <h2>Free</h2>
-        <div class="price">$0</div>
-        <ul>
-          <li>1 brief/day</li>
-          <li>Core dashboard sections</li>
-          <li>Basic workflow</li>
-        </ul>
-      </section>
-      <section class="card">
-        <h2>Premium</h2>
-        <div class="price">$9 / month</div>
-        <ul>
-          <li>Unlimited briefs</li>
-          <li>History + export workflows</li>
-          <li>Priority feature access</li>
-        </ul>
-        <button id="btnCheckout">Start Premium</button>
-        <div id="loading" class="loading">Redirecting to secure checkout...</div>
-      </section>
+    <div class="top">
+      <div>
+        <div class="title">AI Assassins — Pricing</div>
+        <div class="sub">Choose your tier. Upgrade anytime. Cancel anytime.</div>
+      </div>
+      <div class="row">
+        <a class="btn" href="./index.html">← Back to Brief</a>
+        <a class="btn" href="./PRIVACY_POLICY.md">Privacy</a>
+        <a class="btn" href="./TERMS_OF_SERVICE.md">Terms</a>
+      </div>
     </div>
 
-    <div id="errorBox" class="error"></div>
-    <p class="muted" style="margin-top:10px;">
-      Billing is processed securely by Stripe Checkout. If checkout is unavailable, the app will keep running on Free tier.
-    </p>
+    <div id="notice" class="notice"></div>
+    <div id="loading" class="loading">Redirecting to secure checkout...</div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="tag">Tier: Free</div>
+        <div class="price">$0</div>
+        <div class="per">Basic brief generation</div>
+        <ul>
+          <li>Manual “Generate Brief”</li>
+          <li>Markets + overview</li>
+          <li>Basic export</li>
+        </ul>
+        <div class="row">
+          <button class="btn" id="freeBack">Keep Free</button>
+        </div>
+        <div class="fine muted">Good for personal daily intel snapshots.</div>
+      </div>
+
+      <div class="card" style="border-color:#2f6a93; box-shadow:0 0 0 1px rgba(115,216,255,.09);">
+        <div class="tag">Tier: Pro <span class="muted">Most Popular</span></div>
+        <div class="price">$4.99</div>
+        <div class="per">per month</div>
+        <ul>
+          <li>Auto-refresh</li>
+          <li>Weather + location intelligence</li>
+          <li>Brief history + saved runs</li>
+          <li>Priority speed + reliability</li>
+        </ul>
+        <div class="row">
+          <button class="btn primary" data-plan="pro" id="buyPro">Start Pro</button>
+        </div>
+        <div class="fine muted">Best balance for daily operators.</div>
+      </div>
+
+      <div class="card">
+        <div class="tag">Tier: Elite</div>
+        <div class="price">$14.99</div>
+        <div class="per">per month</div>
+        <ul>
+          <li>Everything in Pro</li>
+          <li>Extended brief depth</li>
+          <li>Advanced export (PDF pack)</li>
+          <li>Custom focus presets</li>
+        </ul>
+        <div class="row">
+          <button class="btn primary" data-plan="elite" id="buyElite">Start Elite</button>
+        </div>
+        <div class="fine muted">For power users & teams.</div>
+      </div>
+    </div>
+
+    <div class="faq card">
+      <div class="q">How does billing work?</div>
+      <div class="muted">On web/PWA, checkout is handled securely via Stripe. Your tier syncs back to the app after payment.</div>
+
+      <div class="q">Does this work on the App Store version?</div>
+      <div class="muted">If you publish a native iOS/Android wrapper, you typically use in-app purchases for digital subscriptions. We can wire RevenueCat for that while keeping web Stripe for the PWA.</div>
+
+      <div class="q">What if I paid but the tier didn’t update?</div>
+      <div class="muted">Open the app, tap “Login”, then “Sync / Refresh”. The Worker checks your subscription status.</div>
+    </div>
+
+    <div class="footer">
+      <div class="muted">© <span id="year"></span> AI Assassins</div>
+      <div class="muted">Questions: <a href="./support.html">Support</a></div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

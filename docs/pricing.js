@@ -7,7 +7,7 @@ function byId(id) {
 }
 
 function setError(message) {
-  const box = byId("errorBox");
+  const box = byId("notice");
   if (!box) return;
   if (!message) {
     box.style.display = "none";
@@ -16,13 +16,14 @@ function setError(message) {
   }
   box.style.display = "block";
   box.textContent = message;
+  box.style.borderColor = "#8a3b3b";
 }
 
 function setLoading(isLoading) {
   const loading = byId("loading");
-  const btn = byId("btnCheckout");
+  const btns = [byId("buyPro"), byId("buyElite")].filter(Boolean);
   if (loading) loading.style.display = isLoading ? "block" : "none";
-  if (btn) btn.disabled = isLoading;
+  btns.forEach((btn) => { btn.disabled = isLoading; });
 }
 
 async function getAuthContext() {
@@ -43,7 +44,7 @@ async function getAuthContext() {
   }
 }
 
-async function startCheckout() {
+async function startCheckout(plan) {
   setError("");
   setLoading(true);
   try {
@@ -57,6 +58,7 @@ async function startCheckout() {
         ...(auth.token ? { Authorization: `Bearer ${auth.token}` } : {})
       },
       body: JSON.stringify({
+        plan: plan || "pro",
         email: auth.email || null,
         user_id: auth.userId || null,
         success_url: `${successUrl}?session_id={CHECKOUT_SESSION_ID}`,
@@ -79,5 +81,10 @@ async function startCheckout() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  byId("btnCheckout")?.addEventListener("click", startCheckout);
+  byId("year").textContent = String(new Date().getFullYear());
+  byId("freeBack")?.addEventListener("click", () => {
+    window.location.href = "./index.html";
+  });
+  byId("buyPro")?.addEventListener("click", () => startCheckout("pro"));
+  byId("buyElite")?.addEventListener("click", () => startCheckout("elite"));
 });

@@ -10,6 +10,8 @@ REQUIRE_AUTH = "true"
 ALLOWED_ORIGINS = "https://saintblack-ai.github.io"
 PUBLIC_APP_URL = "https://saintblack-ai.github.io/Ai-Assassins"
 STRIPE_PRICE_ID = ""
+STRIPE_PRICE_ID_PRO = ""
+STRIPE_PRICE_ID_ELITE = ""
 
 [observability]
 enabled = true

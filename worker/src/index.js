@@ -163,11 +163,16 @@ export default {
         if (!isAllowedWriteOrigin(request, env)) {
           return json({ error: "Origin not allowed" }, 403);
         }
-        if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_ID) {
+        if (!env.STRIPE_SECRET_KEY) {
           return json({ error: "Checkout not configured. App remains available on Free tier." }, 501);
         }
         const body = await request.json().catch(() => ({}));
         const auth = getAuthContext(request);
+        const plan = String(body?.plan || "pro").toLowerCase();
+        const priceId = resolveStripePriceId(env, plan);
+        if (!priceId) {
+          return json({ error: "Selected plan is not configured yet. App remains available on Free tier." }, 501);
+        }
         const appUrl = String(env.PUBLIC_APP_URL || "https://saintblack-ai.github.io/Ai-Assassins").replace(/\/$/, "");
         const successUrl = String(body?.success_url || `${appUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`);
         const cancelUrl = String(body?.cancel_url || `${appUrl}/cancel.html`);
@@ -175,13 +180,13 @@ export default {
         const userId = String(body?.user_id || body?.userId || auth.userId || email).trim();
 
         const session = await stripeCreateCheckoutSession(env.STRIPE_SECRET_KEY, {
-          priceId: env.STRIPE_PRICE_ID,
+          priceId,
           successUrl,
           cancelUrl,
           email,
           userId
         });
-        return json({ ok: true, id: session.id, url: session.url });
+        return json({ ok: true, id: session.id, url: session.url, plan });
       }
 
       if (request.method === "GET" && (url.pathname === "/api/checkout/status" || url.pathname === "/api/billing/status")) {
@@ -726,6 +731,12 @@ function isAllowedWriteOrigin(request, env) {
     .map((x) => x.trim())
     .filter(Boolean);
   return allowList.includes(origin);
+}
+
+function resolveStripePriceId(env, plan) {
+  if (plan === "elite") return String(env.STRIPE_PRICE_ID_ELITE || "").trim();
+  if (plan === "pro") return String(env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || "").trim();
+  return "";
 }
 
 function getAuthContext(request) {
