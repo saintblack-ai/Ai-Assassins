@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Assassins Pricing</title>
+  <link rel="icon" href="./icon-192.png">
+  <style>
+    :root { --bg:#070b10; --card:#101923; --border:#274463; --text:#e7eef7; --muted:#9fb0c5; --accent:#73d8ff; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #0f1724 0%, var(--bg) 45%), var(--bg); color:var(--text); font-family:"JetBrains Mono","Consolas",monospace; }
+    .wrap { max-width:960px; margin:0 auto; padding:24px 16px 40px; }
+    .back { display:inline-block; margin-bottom:12px; color:var(--accent); text-decoration:none; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; }
+    .card { background:linear-gradient(180deg, #0e1825 0%, #0b1119 100%); border:1px solid var(--border); border-radius:12px; padding:14px; }
+    h1 { margin:4px 0 8px; font-size:1.4rem; }
+    h2 { margin:0 0 8px; font-size:1.1rem; }
+    ul { margin:0; padding-left:18px; }
+    .price { font-size:1.6rem; margin:8px 0 10px; }
+    .muted { color:var(--muted); font-size:.9rem; }
+    button { border-radius:10px; border:1px solid var(--border); background:#101b29; color:var(--text); padding:10px 14px; cursor:pointer; width:100%; margin-top:12px; }
+    .error { display:none; margin-top:10px; border:1px solid #8a3b3b; background:#2a1515; border-radius:10px; padding:10px; }
+    .loading { display:none; margin-top:8px; color:var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="./index.html">← Back to Briefing</a>
+    <h1>Choose Your Access Tier</h1>
+    <p class="muted">Upgrade to unlock unlimited brief generation and premium workflows.</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Free</h2>
+        <div class="price">$0</div>
+        <ul>
+          <li>1 brief/day</li>
+          <li>Core dashboard sections</li>
+          <li>Basic workflow</li>
+        </ul>
+      </section>
+      <section class="card">
+        <h2>Premium</h2>
+        <div class="price">$9 / month</div>
+        <ul>
+          <li>Unlimited briefs</li>
+          <li>History + export workflows</li>
+          <li>Priority feature access</li>
+        </ul>
+        <button id="btnCheckout">Start Premium</button>
+        <div id="loading" class="loading">Redirecting to secure checkout...</div>
+      </section>
+    </div>
+
+    <div id="errorBox" class="error"></div>
+    <p class="muted" style="margin-top:10px;">
+      Billing is processed securely by Stripe Checkout. If checkout is unavailable, the app will keep running on Free tier.
+    </p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./pricing.js?v=20260216_01"></script>
+</body>
+</html>

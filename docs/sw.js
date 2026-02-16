@@ -1,10 +1,14 @@
-const CACHE_VERSION = "20260215_01";
+const CACHE_VERSION = "20260216_01";
 const CACHE = `ai-assassins-pwa-${CACHE_VERSION}`;
 
 const PRECACHE = [
   "./",
   "./index.html",
   "./integrations.js?v=20260215_01",
+  "./pricing.html",
+  "./pricing.js?v=20260216_01",
+  "./success.html",
+  "./cancel.html",
   "./manifest.webmanifest",
   "./icon-192.png",
   "./icon-512.png",

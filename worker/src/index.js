@@ -159,6 +159,60 @@ export default {
         return json({ token, email, expires_in: 86400 });
       }
 
+      if (request.method === "POST" && (url.pathname === "/api/checkout/session" || url.pathname === "/api/billing/checkout")) {
+        if (!isAllowedWriteOrigin(request, env)) {
+          return json({ error: "Origin not allowed" }, 403);
+        }
+        if (!env.STRIPE_SECRET_KEY || !env.STRIPE_PRICE_ID) {
+          return json({ error: "Checkout not configured. App remains available on Free tier." }, 501);
+        }
+        const body = await request.json().catch(() => ({}));
+        const auth = getAuthContext(request);
+        const appUrl = String(env.PUBLIC_APP_URL || "https://saintblack-ai.github.io/Ai-Assassins").replace(/\/$/, "");
+        const successUrl = String(body?.success_url || `${appUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`);
+        const cancelUrl = String(body?.cancel_url || `${appUrl}/cancel.html`);
+        const email = String(body?.email || auth.email || "").trim();
+        const userId = String(body?.user_id || body?.userId || auth.userId || email).trim();
+
+        const session = await stripeCreateCheckoutSession(env.STRIPE_SECRET_KEY, {
+          priceId: env.STRIPE_PRICE_ID,
+          successUrl,
+          cancelUrl,
+          email,
+          userId
+        });
+        return json({ ok: true, id: session.id, url: session.url });
+      }
+
+      if (request.method === "GET" && (url.pathname === "/api/checkout/status" || url.pathname === "/api/billing/status")) {
+        const sessionId = String(url.searchParams.get("session_id") || "").trim();
+        if (!sessionId) return json({ error: "session_id is required" }, 400);
+        if (!env.STRIPE_SECRET_KEY) {
+          return json({ error: "Checkout status not configured. Continue using Free tier." }, 501);
+        }
+
+        const session = await stripeGetCheckoutSession(env.STRIPE_SECRET_KEY, sessionId);
+        const subscriptionId = session?.subscription ? String(session.subscription) : "";
+        const subscription = subscriptionId ? await stripeGetSubscriptionById(env.STRIPE_SECRET_KEY, subscriptionId) : null;
+        const status = String(subscription?.status || session?.status || "none");
+        const tier = (status === "active" || status === "trialing") ? "pro" : "free";
+        const userId = String(session?.client_reference_id || "").trim();
+        if (userId) {
+          await setUserTier(env, userId, tier, { provider: "stripe_checkout", session_id: sessionId, status });
+        }
+
+        return json({
+          ok: true,
+          session_id: sessionId,
+          payment_status: session?.payment_status || "unpaid",
+          status,
+          tier,
+          customer_id: session?.customer || null,
+          subscription_id: subscriptionId || null,
+          user_id: userId || null
+        });
+      }
+
       if (request.method === "POST" && url.pathname === "/subscribe") {
         const body = await request.json().catch(() => ({}));
         const email = String(body?.email || "").trim();
@@ -851,6 +905,47 @@ async function setUserTier(env, userId, tier, payload = null) {
   }
 
   IN_MEMORY_SUBSCRIPTIONS.set(userId, { tier: normalized, updated_at: now, payload });
+}
+
+async function stripeCreateCheckoutSession(secretKey, input) {
+  const body = new URLSearchParams();
+  body.set("mode", "subscription");
+  body.set("line_items[0][price]", input.priceId);
+  body.set("line_items[0][quantity]", "1");
+  body.set("success_url", input.successUrl);
+  body.set("cancel_url", input.cancelUrl);
+  if (input.email) body.set("customer_email", input.email);
+  if (input.userId) {
+    body.set("client_reference_id", input.userId);
+    body.set("metadata[user_id]", input.userId);
+  }
+
+  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
+  if (!res.ok) throw new Error(`Stripe checkout session error ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function stripeGetCheckoutSession(secretKey, sessionId) {
+  const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(sessionId)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` }
+  });
+  if (!res.ok) throw new Error(`Stripe checkout status error ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function stripeGetSubscriptionById(secretKey, subscriptionId) {
+  const res = await fetch(`https://api.stripe.com/v1/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    headers: { Authorization: `Bearer ${secretKey}` }
+  });
+  if (!res.ok) return null;
+  return res.json();
 }
 
 async function stripeCreateCustomer(secretKey, email) {

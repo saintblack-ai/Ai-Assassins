@@ -8,6 +8,8 @@ OPENAI_MODEL = "gpt-4.1-mini"
 FREE_BRIEFS_PER_DAY = "1"
 REQUIRE_AUTH = "true"
 ALLOWED_ORIGINS = "https://saintblack-ai.github.io"
+PUBLIC_APP_URL = "https://saintblack-ai.github.io/Ai-Assassins"
+STRIPE_PRICE_ID = ""
 
 [observability]
 enabled = true

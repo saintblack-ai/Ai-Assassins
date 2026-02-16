@@ -31,6 +31,7 @@ const IDS = {
   loginPassword: "loginPassword",
   btnLogin: "btnLogin",
   btnSubscribe: "btnSubscribe",
+  btnPricing: "btnPricing",
   btnRestorePurchases: "btnRestorePurchases",
   subscriptionBadge: "subscriptionBadge",
   billingStatus: "billingStatus",
@@ -526,11 +527,19 @@ function wireUp() {
 
   byId(IDS.btnSubscribe)?.addEventListener("click", async () => {
     try {
-      await subscribeNative();
-      await refreshAccountStatus();
+      if (isCapacitorRuntime()) {
+        await subscribeNative();
+        await refreshAccountStatus();
+        return;
+      }
+      window.location.href = "./pricing.html";
     } catch (error) {
       setError(error.message || "Subscription failed");
     }
+  });
+
+  byId(IDS.btnPricing)?.addEventListener("click", () => {
+    window.location.href = "./pricing.html";
   });
 
   byId(IDS.btnRestorePurchases)?.addEventListener("click", async () => {

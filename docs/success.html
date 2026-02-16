@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Checkout Success - AI Assassins</title>
+  <link rel="icon" href="./icon-192.png">
+  <style>
+    body { margin:0; font-family:"JetBrains Mono","Consolas",monospace; background:#070b10; color:#e7eef7; display:grid; place-items:center; min-height:100vh; }
+    .card { max-width:680px; margin:16px; border:1px solid #274463; border-radius:12px; background:#101923; padding:18px; }
+    a { color:#73d8ff; }
+    .muted { color:#9fb0c5; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Subscription Activated</h1>
+    <p class="muted" id="statusText">Verifying your billing status...</p>
+    <p><a href="./index.html">Return to Dashboard</a></p>
+  </div>
+  <script>
+    (async () => {
+      const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+      const text = document.getElementById("statusText");
+      const sessionId = new URLSearchParams(window.location.search).get("session_id");
+      if (!sessionId) {
+        text.textContent = "Checkout completed. Billing status will update shortly.";
+        return;
+      }
+      try {
+        const res = await fetch(`${API_BASE}/api/checkout/status?session_id=${encodeURIComponent(sessionId)}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || `Status check failed (${res.status})`);
+        text.textContent = `Payment status: ${data.payment_status || "unknown"} | Tier: ${data.tier || "free"}`;
+      } catch (err) {
+        text.textContent = err?.message || "Unable to verify checkout status yet.";
+      }
+    })();
+  </script>
+</body>
+</html>
