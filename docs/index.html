@@ -53,6 +53,7 @@
         <button id="btnGenerate">Generate Brief</button>
         <button id="btnLogin">Login</button>
         <button id="btnSubscribe">Upgrade</button>
+        <button id="btnRestorePurchases" data-premium-control="true">Restore</button>
         <button id="btnExportPdf" data-premium="true">Export PDF</button>
         <span id="subscriptionBadge" class="badge">Tier: Free</span>
       </div>
@@ -100,9 +101,24 @@
         <ul id="pastBriefsList"><li class="muted">No saved briefs yet</li></ul>
       </section>
     </div>
+
+    <div class="grid" style="margin-top:12px;">
+      <section class="card">
+        <h3>Subscription</h3>
+        <div id="tierDetails" class="small muted">Free tier: 1 brief/day. Pro tier: unlimited briefs + exports.</div>
+        <div id="billingStatus" class="small muted" style="margin-top:8px;">Billing status: Unknown</div>
+      </section>
+      <section class="card">
+        <h3>Legal</h3>
+        <div class="small"><a href="./legal/TERMS.md" target="_blank" rel="noopener">Terms of Service</a></div>
+        <div class="small"><a href="./legal/PRIVACY.md" target="_blank" rel="noopener">Privacy Policy</a></div>
+        <div class="small"><a href="./legal/GDPR.md" target="_blank" rel="noopener">GDPR Notice</a></div>
+      </section>
+    </div>
   </div>
   <div id="toastContainer" class="toast-wrap" aria-live="polite"></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script src="./integrations.js?v=20260215_01"></script>
   <dialog id="loginDialog" style="background:#0f1724;color:#e7eef7;border:1px solid #274463;border-radius:12px;padding:16px;max-width:360px;">

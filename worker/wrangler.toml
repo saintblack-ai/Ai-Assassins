@@ -5,6 +5,8 @@ workers_dev = true
 
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
+FREE_BRIEFS_PER_DAY = "1"
+REQUIRE_AUTH = "true"
 
 [observability]
 enabled = true

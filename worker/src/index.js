@@ -1,7 +1,7 @@
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json; charset=utf-8"
 };
 
@@ -61,6 +61,8 @@ const WEATHER_CODE_MAP = {
 
 const IN_MEMORY_BRIEFS = new Map();
 const IN_MEMORY_AUTH_TOKENS = new Map();
+const IN_MEMORY_USAGE = new Map();
+const IN_MEMORY_SUBSCRIPTIONS = new Map();
 
 export default {
   async fetch(request, env) {
@@ -92,6 +94,22 @@ export default {
         return json(getScripture());
       }
 
+      if (request.method === "GET" && url.pathname === "/api/me") {
+        const auth = getAuthContext(request);
+        const profile = auth.userId ? await getOrCreateUserProfile(env, auth.userId, auth.email || null) : null;
+        const tier = auth.userId ? await resolveUserTier(env, auth.userId) : "free";
+        const usage = auth.userId ? await getDailyUsage(env, auth.userId, new Date().toISOString().slice(0, 10)) : 0;
+        return json({
+          authenticated: Boolean(auth.userId),
+          user_id: auth.userId || null,
+          email: auth.email || null,
+          tier,
+          free_quota_per_day: getFreeQuota(env),
+          usage_today: usage,
+          profile
+        });
+      }
+
       if (request.method === "GET" && url.pathname === "/briefs") {
         const items = await listBriefs(env, 50);
         return json({ items });
@@ -110,8 +128,12 @@ export default {
         if (!isAuthorizedWrite(request, env)) {
           return json({ error: "Unauthorized" }, 401);
         }
+        const auth = getAuthContext(request);
+        const usageCheck = await enforceUsageLimit(env, auth.userId);
+        if (!usageCheck.ok) return json({ error: usageCheck.error, tier: usageCheck.tier, usage: usageCheck.usage, quota: usageCheck.quota }, 402);
         const brief = await buildBrief(validated.value, env);
         const saved = await saveBrief(env, brief);
+        if (auth.userId) await incrementUsage(env, auth.userId);
         return json({ id: saved.id, ...brief });
       }
 
@@ -130,37 +152,73 @@ export default {
         const body = await request.json().catch(() => ({}));
         const email = String(body?.email || "").trim();
         const priceId = String(body?.priceId || body?.price_id || "").trim();
+        const userId = String(body?.user_id || body?.userId || email).trim();
         if (!email || !priceId) return json({ error: "email and priceId are required" }, 400);
         if (!env.STRIPE_SECRET_KEY) return json({ error: "Stripe not configured" }, 501);
 
         const customer = await stripeCreateCustomer(env.STRIPE_SECRET_KEY, email);
         const subscription = await stripeCreateSubscription(env.STRIPE_SECRET_KEY, customer.id, priceId);
         await upsertSubscriptionStatus(env, customer.id, subscription.status || "incomplete", subscription);
+        await setUserTier(env, userId, subscription.status === "active" ? "pro" : "free", {
+          provider: "stripe",
+          customer_id: customer.id,
+          subscription_id: subscription.id,
+          status: subscription.status
+        });
 
         return json({
           ok: true,
+          user_id: userId,
           customer_id: customer.id,
           subscription_id: subscription.id,
           status: subscription.status
         });
       }
 
+      if (request.method === "POST" && url.pathname === "/revenuecat/webhook") {
+        const secret = String(env.REVENUECAT_WEBHOOK_SECRET || "").trim();
+        if (secret) {
+          const authHeader = request.headers.get("Authorization") || "";
+          const provided = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+          if (provided !== secret) return json({ error: "Unauthorized webhook" }, 401);
+        }
+        const payload = await request.json().catch(() => null);
+        if (!payload || typeof payload !== "object") return json({ error: "Invalid payload" }, 400);
+
+        const appUserId = String(payload?.event?.app_user_id || payload?.app_user_id || "").trim();
+        if (!appUserId) return json({ error: "Missing app_user_id" }, 400);
+
+        const eventType = String(payload?.event?.type || payload?.type || "").toUpperCase();
+        const isActive = ["INITIAL_PURCHASE", "RENEWAL", "NON_RENEWING_PURCHASE", "UNCANCELLATION"].includes(eventType);
+        const tier = isActive ? "pro" : "free";
+        await setUserTier(env, appUserId, tier, payload);
+        return json({ ok: true, user_id: appUserId, tier });
+      }
+
       if (request.method === "GET" && url.pathname === "/status") {
         const customerId = String(url.searchParams.get("customer_id") || "").trim();
-        if (!customerId) return json({ tier: "free", status: "none" });
+        const userId = String(url.searchParams.get("user_id") || "").trim();
+        if (!customerId && !userId) return json({ tier: "free", status: "none" });
 
         if (env.STRIPE_SECRET_KEY) {
-          const latest = await stripeGetLatestSubscription(env.STRIPE_SECRET_KEY, customerId);
+          const latest = customerId ? await stripeGetLatestSubscription(env.STRIPE_SECRET_KEY, customerId) : null;
           const status = latest?.status || "none";
-          await upsertSubscriptionStatus(env, customerId, status, latest || {});
+          if (customerId) await upsertSubscriptionStatus(env, customerId, status, latest || {});
+          if (userId) await setUserTier(env, userId, status === "active" ? "pro" : "free", { provider: "stripe", status });
           return json({
             customer_id: customerId,
+            user_id: userId || null,
             status,
             tier: status === "active" ? "pro" : "free"
           });
         }
 
-        const saved = await getSubscriptionStatus(env, customerId);
+        if (userId) {
+          const tier = await resolveUserTier(env, userId);
+          return json({ user_id: userId, status: tier === "pro" ? "active" : "none", tier });
+        }
+
+        const saved = customerId ? await getSubscriptionStatus(env, customerId) : null;
         if (!saved) return json({ customer_id: customerId, status: "none", tier: "free" });
         return json({
           customer_id: customerId,
@@ -178,9 +236,13 @@ export default {
         if (!isAuthorizedWrite(request, env)) {
           return json({ error: "Unauthorized" }, 401);
         }
+        const auth = getAuthContext(request);
+        const usageCheck = await enforceUsageLimit(env, auth.userId);
+        if (!usageCheck.ok) return json({ error: usageCheck.error, tier: usageCheck.tier, usage: usageCheck.usage, quota: usageCheck.quota }, 402);
 
         const brief = await buildBrief(validated.value, env);
         const saved = await saveBrief(env, brief);
+        if (auth.userId) await incrementUsage(env, auth.userId);
         return json({ id: saved.id, ...brief });
       }
 
@@ -484,6 +546,185 @@ function isAuthorizedWrite(request, env) {
   return true;
 }
 
+function getAuthContext(request) {
+  const authHeader = request.headers.get("Authorization") || "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!bearer) return { userId: null, email: null };
+
+  // First, support local token from /auth/login.
+  if (IN_MEMORY_AUTH_TOKENS.has(bearer)) {
+    const tokenRecord = IN_MEMORY_AUTH_TOKENS.get(bearer);
+    if (Date.now() <= tokenRecord.exp) {
+      return { userId: tokenRecord.email || bearer, email: tokenRecord.email || null };
+    }
+    IN_MEMORY_AUTH_TOKENS.delete(bearer);
+    return { userId: null, email: null };
+  }
+
+  // JWT decode (no signature verification in Worker lightweight path).
+  try {
+    const parts = bearer.split(".");
+    if (parts.length < 2) return { userId: null, email: null };
+    const payload = JSON.parse(base64UrlDecode(parts[1]));
+    const userId = String(payload?.sub || payload?.user_id || "").trim() || null;
+    const email = payload?.email ? String(payload.email).trim() : null;
+    return { userId, email };
+  } catch {
+    return { userId: null, email: null };
+  }
+}
+
+function base64UrlDecode(input) {
+  const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+  return atob(padded);
+}
+
+function getFreeQuota(env) {
+  const configured = Number(env.FREE_BRIEFS_PER_DAY || 1);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 1;
+}
+
+function usageKey(userId, date) {
+  return `usage:${userId}:${date}`;
+}
+
+async function enforceUsageLimit(env, userId) {
+  if (!userId) {
+    return { ok: false, error: "Authentication required", tier: "free", usage: 0, quota: getFreeQuota(env) };
+  }
+  const tier = await resolveUserTier(env, userId);
+  if (tier === "pro") return { ok: true, tier, usage: 0, quota: "unlimited" };
+
+  const date = new Date().toISOString().slice(0, 10);
+  const usage = await getDailyUsage(env, userId, date);
+  const quota = getFreeQuota(env);
+  if (usage >= quota) {
+    return { ok: false, error: "Free tier quota reached. Upgrade to continue.", tier, usage, quota };
+  }
+  return { ok: true, tier, usage, quota };
+}
+
+async function incrementUsage(env, userId) {
+  if (!userId) return;
+  const date = new Date().toISOString().slice(0, 10);
+  const key = usageKey(userId, date);
+
+  if (env.BRIEFS_DB) {
+    await ensureUsageTables(env);
+    const row = await env.BRIEFS_DB
+      .prepare("SELECT count FROM usage WHERE user_id = ?1 AND date = ?2")
+      .bind(userId, date)
+      .first();
+    const next = (Number(row?.count) || 0) + 1;
+    await env.BRIEFS_DB
+      .prepare("INSERT INTO usage (user_id, date, count) VALUES (?1, ?2, ?3) ON CONFLICT(user_id, date) DO UPDATE SET count = ?3")
+      .bind(userId, date, next)
+      .run();
+    return;
+  }
+
+  if (env.BRIEFS_KV) {
+    const current = Number(await env.BRIEFS_KV.get(key)) || 0;
+    await env.BRIEFS_KV.put(key, String(current + 1), { expirationTtl: 60 * 60 * 24 * 2 });
+    return;
+  }
+
+  IN_MEMORY_USAGE.set(key, (IN_MEMORY_USAGE.get(key) || 0) + 1);
+}
+
+async function getDailyUsage(env, userId, date) {
+  if (!userId) return 0;
+  const key = usageKey(userId, date);
+
+  if (env.BRIEFS_DB) {
+    await ensureUsageTables(env);
+    const row = await env.BRIEFS_DB
+      .prepare("SELECT count FROM usage WHERE user_id = ?1 AND date = ?2")
+      .bind(userId, date)
+      .first();
+    return Number(row?.count) || 0;
+  }
+
+  if (env.BRIEFS_KV) {
+    return Number(await env.BRIEFS_KV.get(key)) || 0;
+  }
+
+  return IN_MEMORY_USAGE.get(key) || 0;
+}
+
+async function getOrCreateUserProfile(env, userId, email) {
+  if (!userId) return null;
+  const now = new Date().toISOString();
+
+  if (env.BRIEFS_DB) {
+    await ensureUsageTables(env);
+    await env.BRIEFS_DB
+      .prepare("INSERT INTO users (id, email, created_at, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(id) DO UPDATE SET email = COALESCE(excluded.email, users.email), updated_at = excluded.updated_at")
+      .bind(userId, email, now, now)
+      .run();
+    return env.BRIEFS_DB.prepare("SELECT id, email, created_at, updated_at FROM users WHERE id = ?1").bind(userId).first();
+  }
+
+  if (env.BRIEFS_KV) {
+    const key = `user:${userId}`;
+    const existing = await env.BRIEFS_KV.get(key, { type: "json" });
+    const next = {
+      id: userId,
+      email: email || existing?.email || null,
+      created_at: existing?.created_at || now,
+      updated_at: now
+    };
+    await env.BRIEFS_KV.put(key, JSON.stringify(next));
+    return next;
+  }
+
+  return { id: userId, email, created_at: now, updated_at: now };
+}
+
+async function resolveUserTier(env, userId) {
+  if (!userId) return "free";
+
+  if (env.BRIEFS_DB) {
+    await ensureUsageTables(env);
+    const row = await env.BRIEFS_DB
+      .prepare("SELECT tier FROM user_access WHERE user_id = ?1")
+      .bind(userId)
+      .first();
+    if (row?.tier) return String(row.tier);
+    return "free";
+  }
+
+  if (env.BRIEFS_KV) {
+    const value = await env.BRIEFS_KV.get(`tier:${userId}`);
+    return value || "free";
+  }
+
+  return IN_MEMORY_SUBSCRIPTIONS.get(userId)?.tier || "free";
+}
+
+async function setUserTier(env, userId, tier, payload = null) {
+  const normalized = tier === "pro" ? "pro" : "free";
+  const now = new Date().toISOString();
+
+  if (env.BRIEFS_DB) {
+    await ensureUsageTables(env);
+    await env.BRIEFS_DB
+      .prepare("INSERT INTO user_access (user_id, tier, source_json, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(user_id) DO UPDATE SET tier=excluded.tier, source_json=excluded.source_json, updated_at=excluded.updated_at")
+      .bind(userId, normalized, JSON.stringify(payload || {}), now)
+      .run();
+    return;
+  }
+
+  if (env.BRIEFS_KV) {
+    await env.BRIEFS_KV.put(`tier:${userId}`, normalized);
+    if (payload) await env.BRIEFS_KV.put(`tier_payload:${userId}`, JSON.stringify(payload));
+    return;
+  }
+
+  IN_MEMORY_SUBSCRIPTIONS.set(userId, { tier: normalized, updated_at: now, payload });
+}
+
 async function stripeCreateCustomer(secretKey, email) {
   const body = new URLSearchParams();
   body.set("email", email);
@@ -557,6 +798,21 @@ async function ensureSubscriptionTables(env) {
     "CREATE TABLE IF NOT EXISTS subscriptions (customer_id TEXT PRIMARY KEY, status TEXT NOT NULL, updated_at TEXT NOT NULL, json TEXT NOT NULL);"
   );
   subscriptionTableReady = true;
+}
+
+let usageTableReady = false;
+async function ensureUsageTables(env) {
+  if (usageTableReady || !env.BRIEFS_DB) return;
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, email TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);"
+  );
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS user_access (user_id TEXT PRIMARY KEY, tier TEXT NOT NULL, source_json TEXT NOT NULL, updated_at TEXT NOT NULL);"
+  );
+  await env.BRIEFS_DB.exec(
+    "CREATE TABLE IF NOT EXISTS usage (user_id TEXT NOT NULL, date TEXT NOT NULL, count INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(user_id, date));"
+  );
+  usageTableReady = true;
 }
 
 function getScripture() {
