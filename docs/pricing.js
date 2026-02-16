@@ -1,4 +1,30 @@
-const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+const DEFAULT_API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+const API_BASE_STORAGE_KEY = "AI_ASSASSINS_API_BASE";
+
+function sanitizeApiBase(value) {
+  if (!value) return "";
+  const trimmed = String(value).trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return parsed.origin + parsed.pathname.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function resolveApiBase() {
+  const fromQuery = sanitizeApiBase(new URLSearchParams(window.location.search).get("apiBase"));
+  if (fromQuery) {
+    localStorage.setItem(API_BASE_STORAGE_KEY, fromQuery);
+    return fromQuery;
+  }
+  const fromStorage = sanitizeApiBase(localStorage.getItem(API_BASE_STORAGE_KEY));
+  return fromStorage || DEFAULT_API_BASE;
+}
+
+const API_BASE = resolveApiBase();
 
 function setNotice(msg) {
   const el = document.getElementById("notice");

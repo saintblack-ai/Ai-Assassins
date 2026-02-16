@@ -1,4 +1,5 @@
-const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+const DEFAULT_API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+const API_BASE_STORAGE_KEY = "AI_ASSASSINS_API_BASE";
 const SUPABASE_URL = window.AIA_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY = window.AIA_SUPABASE_ANON_KEY || "";
 
@@ -34,6 +35,10 @@ const IDS = {
   btnRestorePurchases: "btnRestorePurchases",
   btnUpgrade: "btnUpgrade",
   btnContactEnterprise: "btnContactEnterprise",
+  apiBaseInput: "apiBaseInput",
+  btnSaveApiBase: "btnSaveApiBase",
+  btnResetApiBase: "btnResetApiBase",
+  apiBaseStatus: "apiBaseStatus",
   subscriptionBadge: "subscriptionBadge",
   billingStatus: "billingStatus",
   tierDetails: "tierDetails"
@@ -46,6 +51,7 @@ let authSession = null;
 let currentTier = "free";
 let currentUsage = 0;
 let knownBriefs = [];
+let apiBase = "";
 
 function byId(id) {
   const el = document.getElementById(id);
@@ -54,6 +60,45 @@ function byId(id) {
     missingWarned.add(id);
   }
   return el;
+}
+
+function sanitizeApiBase(value) {
+  if (!value) return "";
+  const trimmed = String(value).trim().replace(/\/+$/, "");
+  if (!trimmed) return "";
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return parsed.origin + parsed.pathname.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+function resolveApiBase() {
+  const fromQuery = sanitizeApiBase(new URLSearchParams(window.location.search).get("apiBase"));
+  if (fromQuery) {
+    localStorage.setItem(API_BASE_STORAGE_KEY, fromQuery);
+    return fromQuery;
+  }
+  const fromStorage = sanitizeApiBase(localStorage.getItem(API_BASE_STORAGE_KEY));
+  return fromStorage || DEFAULT_API_BASE;
+}
+
+function getApiBase() {
+  return apiBase || DEFAULT_API_BASE;
+}
+
+function refreshApiBaseUi() {
+  const input = byId(IDS.apiBaseInput);
+  const status = byId(IDS.apiBaseStatus);
+  if (input) input.value = getApiBase();
+  if (status) {
+    const usingDefault = getApiBase() === DEFAULT_API_BASE;
+    status.textContent = usingDefault
+      ? `Using default API base: ${DEFAULT_API_BASE}`
+      : `Using override API base: ${getApiBase()}`;
+  }
 }
 
 function toast(message, kind = "info") {
@@ -212,7 +257,7 @@ function authHeaders() {
 async function fetchWeatherFallback(lat, lon) {
   if (!lat || !lon) return null;
   try {
-    const url = new URL(`${API_BASE}/api/weather`);
+    const url = new URL(`${getApiBase()}/api/weather`);
     url.searchParams.set("lat", lat);
     url.searchParams.set("lon", lon);
     const res = await fetchWithTimeout(url.toString(), { headers: { Accept: "application/json", ...authHeaders() } }, 12000);
@@ -274,7 +319,7 @@ function getInputs() {
 }
 
 async function requestBrief({ lat, lon, focus, tone, icsUrl }) {
-  const base = API_BASE.replace(/\/$/, "");
+  const base = getApiBase().replace(/\/$/, "");
   const postUrl = `${base}/api/brief`;
 
   const res = await fetchWithTimeout(postUrl, {
@@ -305,7 +350,7 @@ async function loadBriefHistory() {
   }
 
   try {
-    const res = await fetchWithTimeout(`${API_BASE}/briefs`, {
+    const res = await fetchWithTimeout(`${getApiBase()}/briefs`, {
       headers: { Accept: "application/json", ...authHeaders() },
       cache: "no-store",
       mode: "cors"
@@ -352,7 +397,7 @@ async function loadBriefById(id) {
   setError("");
   setLoadingState(true, "Loading saved brief...");
   try {
-    const url = new URL(`${API_BASE}/brief`);
+    const url = new URL(`${getApiBase()}/brief`);
     url.searchParams.set("id", id);
     const res = await fetchWithTimeout(url.toString(), {
       headers: { Accept: "application/json", ...authHeaders() },
@@ -379,7 +424,7 @@ async function refreshAccountStatus() {
     return;
   }
   try {
-    const res = await fetchWithTimeout(`${API_BASE}/api/me`, {
+    const res = await fetchWithTimeout(`${getApiBase()}/api/me`, {
       headers: { Accept: "application/json", ...authHeaders() },
       cache: "no-store",
       mode: "cors"
@@ -452,7 +497,7 @@ async function initSupabaseAuth() {
       loadBriefHistory();
       generateBrief();
     } else {
-      setSubscriptionBadge("free", 0, 1);
+      setSubscriptionBadge("free", 0, 5);
       setError("Login required. Tap Login to continue.");
       renderPastBriefs([]);
     }
@@ -532,6 +577,27 @@ async function exportPdf() {
     .save();
 }
 
+function saveApiBaseOverride() {
+  const candidate = sanitizeApiBase(byId(IDS.apiBaseInput)?.value);
+  if (!candidate) {
+    setError("Invalid API base URL. Example: https://ai-assassins-api.quandrix357.workers.dev");
+    return;
+  }
+  apiBase = candidate;
+  localStorage.setItem(API_BASE_STORAGE_KEY, candidate);
+  setError("");
+  refreshApiBaseUi();
+  toast("API base saved");
+}
+
+function resetApiBaseOverride() {
+  localStorage.removeItem(API_BASE_STORAGE_KEY);
+  apiBase = DEFAULT_API_BASE;
+  setError("");
+  refreshApiBaseUi();
+  toast("API base reset to default");
+}
+
 function wireUp() {
   byId(IDS.btnGenerate)?.addEventListener("click", (e) => {
     e.preventDefault();
@@ -550,7 +616,7 @@ function wireUp() {
     try {
       await supabaseClient.auth.signOut();
       authSession = null;
-      setSubscriptionBadge("free", 0, 1);
+      setSubscriptionBadge("free", 0, 5);
       setError("Logged out.");
     } catch (error) {
       setError(error?.message || "Logout failed.");
@@ -578,10 +644,22 @@ function wireUp() {
     }
   });
 
+  byId(IDS.btnSaveApiBase)?.addEventListener("click", (e) => {
+    e.preventDefault();
+    saveApiBaseOverride();
+  });
+
+  byId(IDS.btnResetApiBase)?.addEventListener("click", (e) => {
+    e.preventDefault();
+    resetApiBaseOverride();
+  });
+
   setAutoRefreshStatus(Boolean(autoRefreshTimer));
+  refreshApiBaseUi();
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
+  apiBase = resolveApiBase();
   wireUp();
   await initSupabaseAuth();
   if (!authSession) {

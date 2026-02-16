@@ -6,6 +6,7 @@ compatibility_date = "2026-02-15"
 # Deploy to Cloudflare workers.dev for now (no custom domain route binding)
 workers_dev = true
 # route = "https://api.aiassassins.com/*" # Disabled for workers.dev-only deployment
+# zone_id = "YOUR_ZONE_ID"              # Enable only when custom DNS zone is configured
 
 # Non-secret runtime variables (safe to commit)
 [vars]
