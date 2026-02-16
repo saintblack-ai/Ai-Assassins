@@ -55,6 +55,9 @@ In `worker/wrangler.toml` and/or Cloudflare dashboard env vars:
 - `ENTERPRISE_DAILY_LIMIT=<optional integer>`
 - `WORKER_VERSION=<optional display version>`
 - `FROM_EMAIL=<sender for Resend>`
+- `BRIEF_TIMEZONE=<IANA timezone, e.g. America/Chicago>`
+- `BRIEF_SEND_HHMM=<local send time HHMM, default 0700>`
+- `DAILY_ALERT_TO=<email recipient for the daily Archaios notifier>`
 
 ## 5) KV namespaces and bindings
 Required bindings in `worker/wrangler.toml`:
@@ -81,7 +84,8 @@ npx wrangler kv namespace create COMMAND_LOG
 ## 6) Cron schedules
 Current schedule:
 
-- `0 8 * * *` (daily at 08:00 UTC)
+- `0 * * * *` (hourly tick)
+- Worker sends once/day when local `BRIEF_SEND_HHMM` matches in `BRIEF_TIMEZONE` (default 07:00 local)
 
 ## 7) GitHub Pages deployment
 GitHub Pages should publish:
@@ -106,3 +110,17 @@ curl -i https://ai-assassins-api.quandrix357.workers.dev/api/command-brief
 curl -i https://ai-assassins-api.quandrix357.workers.dev/api/command-history
 curl -i https://ai-assassins-api.quandrix357.workers.dev/api/metrics
 ```
+
+## 10) Daily notifier endpoint (`/api/brief/send-now`)
+
+Requires `ADMIN_TOKEN`:
+
+```bash
+curl -i -X POST "https://ai-assassins-api.quandrix357.workers.dev/api/brief/send-now" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+
+Expected:
+- HTTP `200`
+- JSON with `brief_key`, `command_brief`, and `email_sent`
+- A `daily_brief_sent` event written to `REVENUE_LOG`

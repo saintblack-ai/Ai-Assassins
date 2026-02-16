@@ -110,8 +110,21 @@ Expected:
 ## 11) Confirm cron behavior
 1. Ensure `worker/wrangler.toml` has:
    - `[triggers]`
-   - `crons = ["0 8 * * *"]`
+   - `crons = ["0 * * * *"]`
 2. Deploy Worker.
-3. Wait for cron tick.
-4. Verify entry is written to both `DAILY_BRIEF_LOG` and `COMMAND_LOG` as applicable.
-5. Verify `REVENUE_LOG` contains `type: "system_brief_generated"` for generated scheduled briefs.
+3. Ensure vars are set: `BRIEF_TIMEZONE`, `BRIEF_SEND_HHMM`, `DAILY_ALERT_TO`, `FROM_EMAIL`.
+4. Wait for cron tick where local time matches `BRIEF_SEND_HHMM`.
+5. Verify entry is written to both `DAILY_BRIEF_LOG` and `COMMAND_LOG` as applicable.
+6. Verify `REVENUE_LOG` contains:
+   - `type: "system_brief_generated"` (generation log)
+   - `type: "daily_brief_sent"` (delivery log with `email_sent` boolean)
+
+## 12) Test manual send-now endpoint (`POST /api/brief/send-now`)
+```bash
+curl -i -X POST "https://ai-assassins-api.quandrix357.workers.dev/api/brief/send-now" \
+  -H "Authorization: Bearer <ADMIN_TOKEN>"
+```
+Expected:
+- HTTP `200`
+- Response includes `brief_key`, `command_brief`, `email_sent`, and `email_to`
+- `REVENUE_LOG` includes `type: "daily_brief_sent"`

@@ -2,16 +2,14 @@ import legacy from "./legacy.js";
 import { getAuthContext } from "./middleware/auth";
 import { isRateLimited } from "./middleware/rateLimit";
 import { handleBrief } from "./handlers/brief";
-import { generateBrief } from "./briefing";
-import { sendBriefEmail } from "./email";
+import { generateBrief, shouldSendNow } from "./briefing";
 import {
-  buildDailyBrief,
   ensureTodayDailyBrief,
   listRecentDailyBriefs,
-  saveDailyBrief,
   todayIsoDateUTC,
 } from "./services/dailyBrief";
 import {
+  buildCommandBrief,
   ensureTodayCommandBrief,
   getMetricsSnapshot,
   listCommandHistory,
@@ -27,6 +25,7 @@ import {
 import {
   getUsage,
   listBriefHistory,
+  logDailyBriefSent,
   logRevenueEvent,
   logSystemBriefGenerated,
   saveLead,
@@ -48,6 +47,7 @@ type Env = {
   BRIEF_TIMEZONE?: string;
   BRIEF_SEND_HHMM?: string;
   BRIEF_EMAIL_TO?: string;
+  DAILY_ALERT_TO?: string;
   FROM_EMAIL?: string;
   RESEND_API_KEY?: string;
   STRIPE_SECRET_KEY?: string;
@@ -141,6 +141,172 @@ async function readBriefCfg(env: Env, userId: string): Promise<BriefCfg> {
   } catch {
     return fallback;
   }
+}
+
+type StrategicBrief = {
+  date: string;
+  system_health: {
+    worker_version: string;
+    kv_bindings: string[];
+  };
+  top_actions: string[];
+  revenue_summary: {
+    total_events: number;
+    enterprise_leads: number;
+  };
+  usage_summary: {
+    active_users: number;
+    free_count: number;
+    pro_count: number;
+    elite_count: number;
+    enterprise_count: number;
+  };
+  brief_summary: string;
+};
+
+function commandBriefKey(date: string): string {
+  return `command:${date}`;
+}
+
+async function sendDailyAlertEmail(
+  env: Env,
+  to: string,
+  subject: string,
+  html: string
+): Promise<{ sent: boolean; error?: string }> {
+  if (!env.RESEND_API_KEY || !env.FROM_EMAIL || !to) {
+    return { sent: false, error: "missing_email_env" };
+  }
+
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${env.RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: env.FROM_EMAIL,
+      to,
+      subject,
+      html,
+    }),
+  });
+
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    return { sent: false, error: `resend_${resp.status}:${text}` };
+  }
+
+  return { sent: true };
+}
+
+async function buildStrategicBrief(env: Env, date: string): Promise<StrategicBrief> {
+  const base = await buildCommandBrief(env, date);
+  const generated = await generateBrief(env, { timezone: env.BRIEF_TIMEZONE || "America/Chicago" });
+
+  return {
+    date,
+    system_health: base.system_health,
+    top_actions: base.top_actions,
+    revenue_summary: base.revenue_summary,
+    usage_summary: base.usage_summary,
+    brief_summary: generated.sections.overnight_overview.slice(0, 2).join(" "),
+  };
+}
+
+function strategicBriefToHtml(brief: StrategicBrief): string {
+  return `
+    <h2>Archaios Daily Brief — ${brief.date}</h2>
+    <h3>Brief Summary</h3>
+    <p>${brief.brief_summary}</p>
+    <h3>Top Actions</h3>
+    <ul>${brief.top_actions.map((x) => `<li>${x}</li>`).join("")}</ul>
+    <h3>Usage Summary</h3>
+    <ul>
+      <li>Active users: ${brief.usage_summary.active_users}</li>
+      <li>Free: ${brief.usage_summary.free_count}</li>
+      <li>Pro: ${brief.usage_summary.pro_count}</li>
+      <li>Elite: ${brief.usage_summary.elite_count}</li>
+      <li>Enterprise: ${brief.usage_summary.enterprise_count}</li>
+    </ul>
+    <h3>Revenue Summary</h3>
+    <ul>
+      <li>Total events: ${brief.revenue_summary.total_events}</li>
+      <li>Enterprise leads: ${brief.revenue_summary.enterprise_leads}</li>
+    </ul>
+  `;
+}
+
+async function runDailyNotifier(
+  env: Env,
+  source: "scheduled" | "api",
+  opts?: { sendIfExisting?: boolean }
+): Promise<{
+  date: string;
+  created: boolean;
+  brief_key: string;
+  command_brief: StrategicBrief;
+  email_sent: boolean;
+  email_to: string | null;
+  error?: string;
+}> {
+  if (!env.COMMAND_LOG) throw new Error("COMMAND_LOG KV not bound");
+
+  const sendContext = shouldSendNow(env);
+  const date = sendContext.ymd || todayIsoDateUTC();
+  const existing = await env.COMMAND_LOG.get(commandBriefKey(date));
+
+  let brief: StrategicBrief;
+  let created = false;
+  const sendIfExisting = opts?.sendIfExisting ?? true;
+
+  if (existing) {
+    try {
+      brief = JSON.parse(existing);
+    } catch {
+      brief = await buildStrategicBrief(env, date);
+      await env.COMMAND_LOG.put(commandBriefKey(date), JSON.stringify(brief), {
+        expirationTtl: 60 * 60 * 24 * 120,
+      });
+      created = true;
+    }
+  } else {
+    brief = await buildStrategicBrief(env, date);
+    await env.COMMAND_LOG.put(commandBriefKey(date), JSON.stringify(brief), {
+      expirationTtl: 60 * 60 * 24 * 120,
+    });
+    created = true;
+  }
+
+  const brief_key = commandBriefKey(date);
+  const emailTo = String(env.DAILY_ALERT_TO || "").trim() || null;
+  const shouldSend = created || sendIfExisting;
+  const emailResult = shouldSend
+    ? await sendDailyAlertEmail(
+      env,
+      emailTo || "",
+      `Archaios Daily Brief — ${date}`,
+      strategicBriefToHtml(brief)
+    )
+    : { sent: false, error: "brief_exists" };
+
+  await logDailyBriefSent(env, {
+    source,
+    brief_key,
+    email_sent: emailResult.sent,
+    email_to: emailTo,
+    error: emailResult.error || null,
+  });
+
+  return {
+    date,
+    created,
+    brief_key,
+    command_brief: brief,
+    email_sent: emailResult.sent,
+    email_to: emailTo,
+    error: emailResult.error,
+  };
 }
 
 async function handleUnifiedWebhook(request: Request, env: Env): Promise<Response> {
@@ -297,6 +463,12 @@ export default {
         const cfg = await readBriefCfg(env, userId);
         const brief = await generateBrief({ ...env, BRIEF_TIMEZONE: cfg.BRIEF_TIMEZONE }, { timezone: cfg.BRIEF_TIMEZONE });
         return json({ success: true, userId, cfg, brief }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/send-now" && (request.method === "POST" || request.method === "GET")) {
+        if (!requireAdmin(request, env)) return json({ error: "unauthorized" }, 401, env);
+        const out = await runDailyNotifier(env, "api");
+        return json({ success: true, ...out }, 200, env);
       }
 
       if (url.pathname === "/api/brief/config" && request.method === "GET") {
@@ -456,40 +628,40 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     try {
+      const sendWindow = shouldSendNow(env);
+      if (!sendWindow.match) {
+        console.log(
+          `scheduled skip: timezone=${sendWindow.timezone} now=${sendWindow.nowHHMM} target=${sendWindow.sendHHMM}`
+        );
+        return;
+      }
+
       if (!env.DAILY_BRIEF_LOG) {
         console.log("scheduled daily brief skipped: DAILY_BRIEF_LOG KV not bound");
         return;
       }
 
-      const date = todayIsoDateUTC();
-      const brief = buildDailyBrief(date);
-      const key = await saveDailyBrief(env, brief);
-      await logSystemBriefGenerated(env, {
-        date,
-        source: "scheduled",
-        key,
-        success: true,
-      });
+      const date = sendWindow.ymd || todayIsoDateUTC();
 
-      if (env.COMMAND_LOG) {
-        const command = await ensureTodayCommandBrief(env, date);
+      const daily = await ensureTodayDailyBrief(env, date);
+      if (daily.created) {
         await logSystemBriefGenerated(env, {
           date,
           source: "scheduled",
-          key: command.key,
+          key: daily.key,
           success: true,
         });
       }
 
-      // Keep existing Phase 2 email behavior available without forcing it.
-      const cfg = await readBriefCfg(env, "colonel");
-      const schedEnv = {
-        ...env,
-        BRIEF_TIMEZONE: cfg.BRIEF_TIMEZONE,
-        BRIEF_EMAIL_TO: cfg.BRIEF_EMAIL_TO || env.BRIEF_EMAIL_TO,
-      };
-      const legacyBrief = await generateBrief(schedEnv, { timezone: cfg.BRIEF_TIMEZONE });
-      await sendBriefEmail(schedEnv, legacyBrief);
+      const command = await runDailyNotifier(env, "scheduled", { sendIfExisting: false });
+      if (command.created) {
+        await logSystemBriefGenerated(env, {
+          date,
+          source: "scheduled",
+          key: command.brief_key,
+          success: true,
+        });
+      }
     } catch (error) {
       console.error("scheduled brief job failed", error);
     }

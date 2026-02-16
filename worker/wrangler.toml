@@ -21,6 +21,9 @@ STRIPE_PRICE_ID_ELITE = ""
 STRIPE_PRICE_PRO = ""
 STRIPE_PRICE_ELITE = ""
 ENTERPRISE_DAILY_LIMIT = ""
+BRIEF_TIMEZONE = "America/Chicago"
+BRIEF_SEND_HHMM = "0700"
+DAILY_ALERT_TO = ""
 
 # KV namespaces used by the Worker
 # USER_STATE: subscription/user profile state
@@ -48,7 +51,8 @@ id = "22942df275bd4797b34b93224e8738c7"
 enabled = true
 
 [triggers]
-crons = ["0 8 * * *"]
+# Run hourly and gate in scheduled() using BRIEF_TIMEZONE + BRIEF_SEND_HHMM (default 0700).
+crons = ["0 * * * *"]
 
 [[kv_namespaces]]
 binding = "BRIEF_LOG"

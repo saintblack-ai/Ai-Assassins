@@ -76,6 +76,30 @@ export async function logSystemBriefGenerated(
   );
 }
 
+export async function logDailyBriefSent(
+  env: Env,
+  payload: {
+    brief_key: string;
+    email_sent: boolean;
+    email_to: string | null;
+    source: "scheduled" | "api";
+    error?: string | null;
+  }
+): Promise<void> {
+  if (!env.REVENUE_LOG) return;
+  const ts = Date.now();
+  const key = `revenue_log:${ts}:daily_brief`;
+  await env.REVENUE_LOG.put(
+    key,
+    JSON.stringify({
+      type: "daily_brief_sent",
+      timestamp: new Date(ts).toISOString(),
+      ...payload,
+    }),
+    { expirationTtl: 60 * 60 * 24 * 90 }
+  );
+}
+
 export async function saveBriefHistory(env: Env, userId: string, brief: unknown): Promise<void> {
   if (!env.USER_STATE) return;
   const ts = Date.now();
