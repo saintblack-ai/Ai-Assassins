@@ -1,9 +1,13 @@
+# Worker identity + entrypoint
 name = "ai-assassins-api"
 main = "src/index.ts"
 compatibility_date = "2026-02-15"
-workers_dev = false
-route = "https://ai-assassins-api.yourdomain.com/*"
 
+# Deploy to Cloudflare workers.dev for now (no custom domain route binding)
+workers_dev = true
+# route = "https://api.aiassassins.com/*" # Disabled for workers.dev-only deployment
+
+# Non-secret runtime variables (safe to commit)
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
 FREE_BRIEFS_PER_DAY = "1"
@@ -17,21 +21,27 @@ STRIPE_PRICE_PRO = ""
 STRIPE_PRICE_ELITE = ""
 ENTERPRISE_DAILY_LIMIT = ""
 
+# KV namespaces used by the Worker
+# USER_STATE: subscription/user profile state
 [[kv_namespaces]]
 binding = "USER_STATE"
 id = "5b20a68249014767b229fc2284111a36"
 
+# USAGE_STATE: daily usage counters for quota enforcement
 [[kv_namespaces]]
 binding = "USAGE_STATE"
 id = "a748caf55c2d479c94fa8dfde604a2f3"
 
+# REVENUE_LOG: billing/revenue event logs
 [[kv_namespaces]]
 binding = "REVENUE_LOG"
 id = "cd21d7bb23da497daf3addcbf8ba01e1"
 
+# LEADS: enterprise/contact lead capture
 [[kv_namespaces]]
 binding = "LEADS"
-id = "YOUR_LEADS_KV_ID"
+id = "22942df275bd4797b34b93224e8738c7"
 
+# Cloudflare Worker telemetry
 [observability]
 enabled = true

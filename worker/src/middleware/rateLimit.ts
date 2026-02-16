@@ -1,4 +1,4 @@
-const RATE_LIMIT = 10;
+const RATE_LIMIT = 60;
 const RATE_WINDOW_MS = 60 * 1000;
 
 const ipStore = new Map<string, { count: number; start: number }>();

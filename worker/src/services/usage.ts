@@ -32,8 +32,9 @@ export async function logRevenueEvent(
   env: Env,
   userId: string,
   tier: string,
-  endpoint: string,
-  success: boolean
+  event: string,
+  success: boolean,
+  userEmail?: string | null
 ): Promise<void> {
   if (!env.REVENUE_LOG) return;
   const ts = Date.now();
@@ -41,8 +42,10 @@ export async function logRevenueEvent(
   await env.REVENUE_LOG.put(
     key,
     JSON.stringify({
+      userId,
+      userEmail: userEmail || null,
       tier,
-      endpoint,
+      event,
       success,
       timestamp: new Date(ts).toISOString(),
     }),

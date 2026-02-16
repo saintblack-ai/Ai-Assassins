@@ -32,6 +32,8 @@ const IDS = {
   btnLogin: "btnLogin",
   btnLogout: "btnLogout",
   btnRestorePurchases: "btnRestorePurchases",
+  btnUpgrade: "btnUpgrade",
+  btnContactEnterprise: "btnContactEnterprise",
   subscriptionBadge: "subscriptionBadge",
   billingStatus: "billingStatus",
   tierDetails: "tierDetails"
@@ -102,6 +104,8 @@ function setSubscriptionBadge(tier, usage, quota) {
   const badge = byId(IDS.subscriptionBadge);
   const status = byId(IDS.billingStatus);
   const details = byId(IDS.tierDetails);
+  const upgradeBtn = byId(IDS.btnUpgrade);
+  const contactEnterpriseBtn = byId(IDS.btnContactEnterprise);
   const label =
     tier === "enterprise" ? "Enterprise" :
     tier === "elite" ? "Elite" :
@@ -117,6 +121,13 @@ function setSubscriptionBadge(tier, usage, quota) {
           : tier === "pro"
             ? "Pro tier active: higher daily limits, history, and export features unlocked."
             : `Free tier usage: ${usage}/${quota} briefs today. Upgrade for higher limits.`;
+  }
+
+  if (upgradeBtn) {
+    upgradeBtn.style.display = tier === "enterprise" ? "none" : "";
+  }
+  if (contactEnterpriseBtn) {
+    contactEnterpriseBtn.style.display = tier === "enterprise" ? "none" : "";
   }
 
   const premiumNodes = document.querySelectorAll('[data-premium="true"]');
@@ -364,7 +375,7 @@ async function loadBriefById(id) {
 
 async function refreshAccountStatus() {
   if (!authSession?.user?.id) {
-    setSubscriptionBadge("free", 0, 1);
+    setSubscriptionBadge("free", 0, 5);
     return;
   }
   try {
@@ -379,7 +390,7 @@ async function refreshAccountStatus() {
     const data = parsed.data || {};
     currentTier = data.tier || "free";
     currentUsage = Number(data.usage_today || 0);
-    const quota = data.free_quota_per_day || 1;
+    const quota = data.usage_limit ?? data.free_quota_per_day ?? 5;
     setSubscriptionBadge(currentTier, currentUsage, quota);
   } catch (error) {
     console.warn("[AI-Assassins] Failed to refresh account status", error);

@@ -12,13 +12,13 @@ type Env = {
 export async function handleBrief(request: Request, env: Env, userId: string, tier: Tier): Promise<Response> {
   const usedToday = await getUsage(env, userId);
   if (!isUsageAllowed(tier, usedToday, env as any)) {
-    await logRevenueEvent(env, userId, tier, "/api/brief", false);
+    await logRevenueEvent(env, userId, tier, "brief_limit_blocked", false);
     return blocked(402);
   }
 
   const OPENAI_API_KEY = env.OPENAI_API_KEY;
   if (!OPENAI_API_KEY) {
-    await logRevenueEvent(env, userId, tier, "/api/brief", false);
+    await logRevenueEvent(env, userId, tier, "brief_missing_openai_key", false);
     return blocked(503, ["OPENAI_API_KEY"]);
   }
 
@@ -27,7 +27,7 @@ export async function handleBrief(request: Request, env: Env, userId: string, ti
 
   await incrementUsage(env, userId);
   await saveBriefHistory(env, userId, brief);
-  await logRevenueEvent(env, userId, tier, "/api/brief", true);
+  await logRevenueEvent(env, userId, tier, "brief_generated", true);
 
   return ok({
     success: true,

@@ -1,4 +1,4 @@
-const API_BASE = (window.__API_BASE__) || "https://ai-assassins-api.quandrix357.workers.dev";
+const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
 
 function setNotice(msg) {
   const el = document.getElementById("notice");
