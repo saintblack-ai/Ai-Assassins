@@ -30,8 +30,7 @@ const IDS = {
   loginEmail: "loginEmail",
   loginPassword: "loginPassword",
   btnLogin: "btnLogin",
-  btnSubscribe: "btnSubscribe",
-  btnPricing: "btnPricing",
+  btnLogout: "btnLogout",
   btnRestorePurchases: "btnRestorePurchases",
   subscriptionBadge: "subscriptionBadge",
   billingStatus: "billingStatus",
@@ -103,17 +102,26 @@ function setSubscriptionBadge(tier, usage, quota) {
   const badge = byId(IDS.subscriptionBadge);
   const status = byId(IDS.billingStatus);
   const details = byId(IDS.tierDetails);
-  if (badge) badge.textContent = `Tier: ${tier === "pro" ? "Pro" : "Free"}`;
-  if (status) status.textContent = `Billing status: ${tier === "pro" ? "Active" : "Free"}`;
+  const label =
+    tier === "enterprise" ? "Enterprise" :
+    tier === "elite" ? "Elite" :
+    tier === "pro" ? "Pro" : "Free";
+  if (badge) badge.textContent = `Tier: ${label}`;
+  if (status) status.textContent = `Billing status: ${tier === "free" ? "Free" : "Active"}`;
   if (details) {
-    details.textContent = tier === "pro"
-      ? "Pro tier active: unlimited briefs, history, and export features unlocked."
-      : `Free tier usage: ${usage}/${quota} briefs today. Upgrade for unlimited access.`;
+    details.textContent =
+      tier === "enterprise"
+        ? "Enterprise tier active: custom policy, SLA, and priority support enabled."
+        : tier === "elite"
+          ? "Elite tier active: advanced exports and expanded strategic brief depth enabled."
+          : tier === "pro"
+            ? "Pro tier active: higher daily limits, history, and export features unlocked."
+            : `Free tier usage: ${usage}/${quota} briefs today. Upgrade for higher limits.`;
   }
 
   const premiumNodes = document.querySelectorAll('[data-premium="true"]');
   premiumNodes.forEach((node) => {
-    node.style.display = tier === "pro" ? "" : "none";
+    node.style.display = tier !== "free" ? "" : "none";
   });
 }
 
@@ -523,24 +531,22 @@ function wireUp() {
     byId(IDS.loginDialog)?.showModal();
   });
 
-  byId(IDS.loginForm)?.addEventListener("submit", handleLoginSubmit);
-
-  byId(IDS.btnSubscribe)?.addEventListener("click", async () => {
+  byId(IDS.btnLogout)?.addEventListener("click", async () => {
+    if (!supabaseClient) {
+      setError("Auth provider not configured.");
+      return;
+    }
     try {
-      if (isCapacitorRuntime()) {
-        await subscribeNative();
-        await refreshAccountStatus();
-        return;
-      }
-      window.location.href = "./pricing.html";
+      await supabaseClient.auth.signOut();
+      authSession = null;
+      setSubscriptionBadge("free", 0, 1);
+      setError("Logged out.");
     } catch (error) {
-      setError(error.message || "Subscription failed");
+      setError(error?.message || "Logout failed.");
     }
   });
 
-  byId(IDS.btnPricing)?.addEventListener("click", () => {
-    window.location.href = "./pricing.html";
-  });
+  byId(IDS.loginForm)?.addEventListener("submit", handleLoginSubmit);
 
   byId(IDS.btnRestorePurchases)?.addEventListener("click", async () => {
     try {

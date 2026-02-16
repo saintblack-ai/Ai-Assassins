@@ -40,7 +40,12 @@ https://saintblack-ai.github.io/Ai-Assassins/PRIVACY_POLICY.md
 https://saintblack-ai.github.io/Ai-Assassins/TERMS_OF_SERVICE.md
 
 ## Store Assets Checklist
-- App icon 512x512
-- Feature graphic 1024x500
-- At least 2 phone screenshots (min 1080 px wide)
-- Optional 7"/10" tablet screenshots
+- App icon 512x512 (`store-assets/play-store/graphics/icon-512.png`)
+- Feature graphic 1024x500 (`store-assets/play-store/graphics/feature-graphic-1024x500.png`)
+- Phone screenshots:
+  - `phone-01-dashboard.png`
+  - `phone-02-pricing.png`
+  - `phone-03-brief-history.png`
+- Tablet screenshots:
+  - `tablet-07in-01-dashboard.png`
+  - `tablet-10in-01-pricing.png`

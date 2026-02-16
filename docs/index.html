@@ -18,7 +18,8 @@
     .sub { color:var(--muted); font-size:.9rem; margin-top:4px; }
     .controls { display:flex; gap:8px; flex-wrap:wrap; }
     button,input { border-radius:10px; border:1px solid var(--border); background:#101b29; color:var(--text); }
-    button { padding:10px 14px; cursor:pointer; box-shadow:0 0 0 1px rgba(115,216,255,.12), 0 0 18px var(--glow); }
+    button, .btn { padding:10px 14px; cursor:pointer; box-shadow:0 0 0 1px rgba(115,216,255,.12), 0 0 18px var(--glow); }
+    .btn { text-decoration:none; display:inline-flex; align-items:center; }
     button:disabled { opacity:.7; cursor:not-allowed; }
     input { padding:9px 10px; }
     .row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
@@ -52,8 +53,8 @@
       <div class="controls">
         <button id="btnGenerate">Generate Brief</button>
         <button id="btnLogin">Login</button>
-        <button id="btnSubscribe">Upgrade</button>
-        <button id="btnPricing">Pricing</button>
+        <button id="btnLogout">Logout</button>
+        <a class="btn" href="./pricing.html">Upgrade</a>
         <button id="btnRestorePurchases" data-premium-control="true">Restore</button>
         <button id="btnExportPdf" data-premium="true">Export PDF</button>
         <span id="subscriptionBadge" class="badge">Tier: Free</span>

@@ -1,8 +1,47 @@
+// ===== SECURITY LAYER =====
+
+// Allowed origin
+const ALLOWED_ORIGIN = "https://saintblack-ai.github.io";
+
+// Basic rate limiting (in-memory soft limit)
+const RATE_LIMIT = 30; // requests
+const RATE_WINDOW = 60 * 1000; // 1 min
+
+const ipStore = new Map();
+
+function rateLimit(ip) {
+  const now = Date.now();
+  const entry = ipStore.get(ip);
+
+  if (!entry) {
+    ipStore.set(ip, { count: 1, start: now });
+    return false;
+  }
+
+  if (now - entry.start > RATE_WINDOW) {
+    ipStore.set(ip, { count: 1, start: now });
+    return false;
+  }
+
+  entry.count++;
+  if (entry.count > RATE_LIMIT) return true;
+
+  return false;
+}
+
 const CORS_HEADERS = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization",
   "Content-Type": "application/json; charset=utf-8"
+};
+
+const secureHeaders = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Content-Security-Policy":
+    "default-src 'self'; connect-src 'self' https://*.workers.dev; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self';",
 };
 
 const SCRIPTURE_ROTATION = [
@@ -67,9 +106,23 @@ const IN_MEMORY_SUBSCRIPTIONS = new Map();
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const origin = request.headers.get("Origin");
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+
+    if (!request.url.startsWith("https://")) {
+      return new Response("HTTPS Required", { status: 400 });
+    }
 
     if (request.method === "OPTIONS") {
       return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+
+    if (origin && origin !== ALLOWED_ORIGIN) {
+      return new Response("Forbidden", { status: 403 });
+    }
+
+    if (rateLimit(ip)) {
+      return new Response("Too Many Requests", { status: 429 });
     }
 
     try {
@@ -159,34 +212,40 @@ export default {
         return json({ token, email, expires_in: 86400 });
       }
 
-      if (request.method === "POST" && (url.pathname === "/api/checkout/session" || url.pathname === "/api/billing/checkout")) {
+      if (url.pathname === "/api/checkout" && request.method === "POST") {
+        if (!isAllowedWriteOrigin(request, env)) {
+          return new Response("Origin not allowed", { status: 403, headers: corsHeaders() });
+        }
+        const body = await request.json().catch(() => ({}));
+        const { plan, successUrl, cancelUrl, deviceId } = body || {};
+        const out = await stripeCreateCheckoutSession(env, { plan, successUrl, cancelUrl, deviceId });
+        if (out.error) {
+          return new Response(out.error, { status: 400, headers: corsHeaders() });
+        }
+        return new Response(JSON.stringify(out), {
+          headers: { ...corsHeaders(), "content-type": "application/json" }
+        });
+      }
+
+      if (
+        request.method === "POST" &&
+        (url.pathname === "/api/checkout/session" || url.pathname === "/api/billing/checkout")
+      ) {
         if (!isAllowedWriteOrigin(request, env)) {
           return json({ error: "Origin not allowed" }, 403);
-        }
-        if (!env.STRIPE_SECRET_KEY) {
-          return json({ error: "Checkout not configured. App remains available on Free tier." }, 501);
         }
         const body = await request.json().catch(() => ({}));
         const auth = getAuthContext(request);
         const plan = String(body?.plan || "pro").toLowerCase();
-        const priceId = resolveStripePriceId(env, plan);
-        if (!priceId) {
-          return json({ error: "Selected plan is not configured yet. App remains available on Free tier." }, 501);
-        }
         const appUrl = String(env.PUBLIC_APP_URL || "https://saintblack-ai.github.io/Ai-Assassins").replace(/\/$/, "");
-        const successUrl = String(body?.success_url || `${appUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`);
-        const cancelUrl = String(body?.cancel_url || `${appUrl}/cancel.html`);
-        const email = String(body?.email || auth.email || "").trim();
-        const userId = String(body?.user_id || body?.userId || auth.userId || email).trim();
-
-        const session = await stripeCreateCheckoutSession(env.STRIPE_SECRET_KEY, {
-          priceId,
-          successUrl,
-          cancelUrl,
-          email,
-          userId
-        });
-        return json({ ok: true, id: session.id, url: session.url, plan });
+        const successUrl = String(body?.success_url || body?.successUrl || `${appUrl}/success.html?session_id={CHECKOUT_SESSION_ID}`);
+        const cancelUrl = String(body?.cancel_url || body?.cancelUrl || `${appUrl}/cancel.html`);
+        const deviceId = String(body?.deviceId || body?.user_id || body?.userId || auth.userId || auth.email || "").trim() || null;
+        const out = await stripeCreateCheckoutSession(env, { plan, successUrl, cancelUrl, deviceId });
+        if (out.error) {
+          return json({ error: out.error }, 400);
+        }
+        return json({ ok: true, id: out.id, url: out.url, plan });
       }
 
       if (request.method === "GET" && (url.pathname === "/api/checkout/status" || url.pathname === "/api/billing/status")) {
@@ -337,7 +396,22 @@ export default {
 };
 
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), { status, headers: CORS_HEADERS });
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      ...CORS_HEADERS,
+      ...secureHeaders,
+      "Content-Type": "application/json",
+    },
+  });
+}
+
+function corsHeaders() {
+  return {
+    "Access-Control-Allow-Origin": CORS_HEADERS["Access-Control-Allow-Origin"],
+    "Access-Control-Allow-Methods": CORS_HEADERS["Access-Control-Allow-Methods"],
+    "Access-Control-Allow-Headers": CORS_HEADERS["Access-Control-Allow-Headers"]
+  };
 }
 
 function validateBriefBody(body) {
@@ -733,12 +807,6 @@ function isAllowedWriteOrigin(request, env) {
   return allowList.includes(origin);
 }
 
-function resolveStripePriceId(env, plan) {
-  if (plan === "elite") return String(env.STRIPE_PRICE_ID_ELITE || "").trim();
-  if (plan === "pro") return String(env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || "").trim();
-  return "";
-}
-
 function getAuthContext(request) {
   const authHeader = request.headers.get("Authorization") || "";
   const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
@@ -918,29 +986,38 @@ async function setUserTier(env, userId, tier, payload = null) {
   IN_MEMORY_SUBSCRIPTIONS.set(userId, { tier: normalized, updated_at: now, payload });
 }
 
-async function stripeCreateCheckoutSession(secretKey, input) {
-  const body = new URLSearchParams();
-  body.set("mode", "subscription");
-  body.set("line_items[0][price]", input.priceId);
-  body.set("line_items[0][quantity]", "1");
-  body.set("success_url", input.successUrl);
-  body.set("cancel_url", input.cancelUrl);
-  if (input.email) body.set("customer_email", input.email);
-  if (input.userId) {
-    body.set("client_reference_id", input.userId);
-    body.set("metadata[user_id]", input.userId);
+async function stripeCreateCheckoutSession(env, { plan, successUrl, cancelUrl, deviceId }) {
+  const priceId =
+    plan === "pro" ? String(env.STRIPE_PRICE_PRO || env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_ID || "").trim() :
+    plan === "elite" ? String(env.STRIPE_PRICE_ELITE || env.STRIPE_PRICE_ID_ELITE || "").trim() :
+    null;
+
+  if (!env.STRIPE_SECRET_KEY || !priceId) {
+    return { error: "Stripe not configured" };
   }
 
-  const res = await fetch("https://api.stripe.com/v1/checkout/sessions", {
+  const form = new URLSearchParams();
+  form.set("mode", "subscription");
+  form.set("success_url", successUrl);
+  form.set("cancel_url", cancelUrl);
+  form.set("line_items[0][price]", priceId);
+  form.set("line_items[0][quantity]", "1");
+
+  // Helps map subscription back to device/user.
+  if (deviceId) form.set("client_reference_id", deviceId);
+
+  const resp = await fetch("https://api.stripe.com/v1/checkout/sessions", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${secretKey}`,
+      Authorization: `Bearer ${env.STRIPE_SECRET_KEY}`,
       "Content-Type": "application/x-www-form-urlencoded"
     },
-    body
+    body: form.toString()
   });
-  if (!res.ok) throw new Error(`Stripe checkout session error ${res.status}: ${await res.text()}`);
-  return res.json();
+
+  const data = await resp.json();
+  if (!resp.ok) return { error: data?.error?.message || "Stripe error" };
+  return { url: data.url, id: data.id };
 }
 
 async function stripeGetCheckoutSession(secretKey, sessionId) {
@@ -1114,7 +1191,10 @@ function formatCalendarEvent(e) {
 }
 
 async function generateBriefWithOpenAI(context, env) {
-  if (!env.OPENAI_API_KEY) throw new Error("OPENAI_API_KEY missing");
+  const OPENAI_API_KEY = env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
+    throw new Error("Missing OpenAI API Key");
+  }
 
   const schema = {
     type: "object",
@@ -1169,7 +1249,7 @@ async function generateBriefWithOpenAI(context, env) {
   const r = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${env.OPENAI_API_KEY}`,
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({

@@ -41,9 +41,11 @@ https://saintblack-ai.github.io/Ai-Assassins/PRIVACY_POLICY.md
 https://saintblack-ai.github.io/Ai-Assassins/TERMS_OF_SERVICE.md
 
 ## Screenshots Needed
-- 6.7" iPhone: home dashboard, generated brief, premium upgrade, restore purchases
-- 6.5" iPhone: login flow, weather+markets populated
-- 12.9" iPad: full dashboard view
+- Required minimum:
+  - 6.5" iPhone: `iphone-6_5-01-dashboard.png`, `iphone-6_5-02-pricing.png`
+  - 5.5" iPhone: `iphone-5_5-01-dashboard.png`, `iphone-5_5-02-history.png`
+- Optional:
+  - 6.7" iPhone and 12.9" iPad variants for broader coverage
 
 ## Age Rating
 12+ recommended (news/geopolitics content)

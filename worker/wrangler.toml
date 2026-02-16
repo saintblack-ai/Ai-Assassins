@@ -1,7 +1,8 @@
 name = "ai-assassins-api"
-main = "src/index.js"
+main = "src/index.ts"
 compatibility_date = "2026-02-15"
-workers_dev = true
+workers_dev = false
+route = "https://ai-assassins-api.yourdomain.com/*"
 
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
@@ -12,6 +13,25 @@ PUBLIC_APP_URL = "https://saintblack-ai.github.io/Ai-Assassins"
 STRIPE_PRICE_ID = ""
 STRIPE_PRICE_ID_PRO = ""
 STRIPE_PRICE_ID_ELITE = ""
+STRIPE_PRICE_PRO = ""
+STRIPE_PRICE_ELITE = ""
+ENTERPRISE_DAILY_LIMIT = ""
+
+[[kv_namespaces]]
+binding = "USER_STATE"
+id = "5b20a68249014767b229fc2284111a36"
+
+[[kv_namespaces]]
+binding = "USAGE_STATE"
+id = "a748caf55c2d479c94fa8dfde604a2f3"
+
+[[kv_namespaces]]
+binding = "REVENUE_LOG"
+id = "cd21d7bb23da497daf3addcbf8ba01e1"
+
+[[kv_namespaces]]
+binding = "LEADS"
+id = "YOUR_LEADS_KV_ID"
 
 [observability]
 enabled = true

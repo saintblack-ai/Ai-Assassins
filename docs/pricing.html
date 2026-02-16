@@ -18,7 +18,7 @@
     .sub{color:var(--muted);font-size:.95rem;margin-top:4px}
     .btn{background:#0b1320;border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer}
     .btn.primary{background:linear-gradient(180deg,#0e2235,#0b1320);border-color:#2f6a93;box-shadow:0 0 0 1px rgba(115,216,255,.08)}
-    .grid{display:grid;grid-template-columns:repeat(3,minmax(240px,1fr));gap:14px;margin-top:16px}
+    .grid{display:grid;grid-template-columns:repeat(4,minmax(220px,1fr));gap:14px;margin-top:16px}
     .card{background:linear-gradient(180deg,#0d1825,#0b111a);border:1px solid var(--border);border-radius:16px;padding:14px}
     .tag{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--border);padding:6px 10px;border-radius:999px;color:var(--muted);font-size:.86rem}
     .price{font-size:2rem;font-weight:900;margin:10px 0 2px}
@@ -33,6 +33,10 @@
     .q{font-weight:800;margin-top:10px}
     .notice{display:none;margin-top:12px;border:1px solid var(--border);background:var(--good);padding:10px;border-radius:12px}
     .loading{display:none;margin-top:8px;color:var(--accent)}
+    .lead-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .lead-grid .full{grid-column:1/-1}
+    input,textarea{width:100%;background:#0b1320;border:1px solid var(--border);color:var(--text);padding:10px;border-radius:10px}
+    textarea{min-height:96px;resize:vertical}
     @media (max-width: 840px){ .grid{grid-template-columns:1fr} }
   </style>
 </head>
@@ -45,8 +49,8 @@
       </div>
       <div class="row">
         <a class="btn" href="./index.html">← Back to Brief</a>
-        <a class="btn" href="./PRIVACY_POLICY.md">Privacy</a>
-        <a class="btn" href="./TERMS_OF_SERVICE.md">Terms</a>
+        <a class="btn" href="./privacy.html">Privacy</a>
+        <a class="btn" href="./terms.html">Terms</a>
       </div>
     </div>
 
@@ -99,6 +103,35 @@
           <button class="btn primary" data-plan="elite" id="buyElite">Start Elite</button>
         </div>
         <div class="fine muted">For power users & teams.</div>
+      </div>
+
+      <div class="card">
+        <div class="tag">Tier: Enterprise</div>
+        <div class="price">Custom</div>
+        <div class="per">annual contract</div>
+        <ul>
+          <li>Everything in Elite</li>
+          <li>Custom daily usage policy</li>
+          <li>Priority support + SLA</li>
+          <li>Org-level rollout support</li>
+        </ul>
+        <div class="row">
+          <button class="btn primary" id="contactSales">Contact Sales</button>
+        </div>
+        <div class="fine muted">For teams and enterprise deployments.</div>
+      </div>
+    </div>
+
+    <div class="card" id="enterpriseFormWrap" style="display:none;">
+      <h3 style="margin-top:0">Enterprise Contact</h3>
+      <div class="lead-grid">
+        <input id="leadName" placeholder="Name">
+        <input id="leadEmail" placeholder="Work Email" type="email">
+        <input id="leadOrg" class="full" placeholder="Organization">
+        <textarea id="leadMessage" class="full" placeholder="What do you need? (users, compliance, integrations, timeline)"></textarea>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="submitLead">Submit</button>
       </div>
     </div>
 

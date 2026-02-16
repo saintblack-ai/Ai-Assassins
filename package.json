@@ -1,0 +1,12 @@
+{
+  "name": "ai-assassins",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "npm --prefix docs run build",
+    "mobile:sync": "npm run build && npm --prefix mobile run sync",
+    "mobile:prepare:ios": "npm run mobile:sync && npm --prefix mobile run ios:add && npm --prefix mobile run ios:open",
+    "mobile:prepare:android": "npm run mobile:sync && npm --prefix mobile run android:add && npm --prefix mobile run android:open",
+    "mobile:release:prep": "bash ./scripts/mobile-release.sh"
+  }
+}
