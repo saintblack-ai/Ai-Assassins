@@ -164,8 +164,78 @@ type StrategicBrief = {
   brief_summary: string;
 };
 
+type CommanderDaily = {
+  date: string;
+  mission: string;
+  revenue_status: string;
+  brand_growth: string;
+  priority_1: string;
+  priority_2: string;
+  priority_3: string;
+};
+
 function commandBriefKey(date: string): string {
   return `command:${date}`;
+}
+
+function commanderDailyKey(date: string): string {
+  return `daily_logs:${date}`;
+}
+
+function isCommanderDaily(value: unknown): value is CommanderDaily {
+  if (!value || typeof value !== "object") return false;
+  const obj = value as Record<string, unknown>;
+  return typeof obj.date === "string" &&
+    typeof obj.mission === "string" &&
+    typeof obj.revenue_status === "string" &&
+    typeof obj.brand_growth === "string" &&
+    typeof obj.priority_1 === "string" &&
+    typeof obj.priority_2 === "string" &&
+    typeof obj.priority_3 === "string";
+}
+
+async function buildCommanderDaily(env: Env, date: string): Promise<CommanderDaily> {
+  const metrics = await getMetricsSnapshot(env);
+  const nowHourUtc = new Date().getUTCHours();
+  const morningTimestampCheck = nowHourUtc < 12;
+  const dailyFocusPriority = morningTimestampCheck
+    ? "Morning offensive: ship one hard feature and one monetization move before 12:00."
+    : "Recovery mode: stabilize systems, close outstanding revenue blockers, and queue next launch.";
+
+  const revenueMetricSnapshot = `events=${metrics.revenue_events_count}, leads=${metrics.enterprise_leads_count}`;
+  const brandMetricSnapshot = `active_users=${metrics.tier_distribution.active_users}, pro+ tiers=${metrics.tier_distribution.pro_count + metrics.tier_distribution.elite_count + metrics.tier_distribution.enterprise_count}`;
+
+  return {
+    date,
+    mission: dailyFocusPriority,
+    revenue_status: `Revenue metric snapshot (${revenueMetricSnapshot})`,
+    brand_growth: `Brand metric snapshot (${brandMetricSnapshot})`,
+    priority_1: "Execute one high-conversion content drop linked to a pricing CTA.",
+    priority_2: "Review usage and tier transitions, then trigger direct outreach to top leads.",
+    priority_3: "Lock one infrastructure reliability improvement and verify alert pipelines.",
+  };
+}
+
+async function ensureCommanderDaily(
+  env: Env,
+  date: string
+): Promise<{ daily: CommanderDaily; key: string; created: boolean }> {
+  if (!env.DAILY_BRIEF_LOG) throw new Error("DAILY_BRIEF_LOG KV not bound");
+  const key = commanderDailyKey(date);
+  const existing = await env.DAILY_BRIEF_LOG.get(key);
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing);
+      if (isCommanderDaily(parsed)) return { daily: parsed, key, created: false };
+    } catch {
+      // fall through and regenerate
+    }
+  }
+  const daily = await buildCommanderDaily(env, date);
+  await env.DAILY_BRIEF_LOG.put(key, JSON.stringify(daily), {
+    expirationTtl: 60 * 60 * 24 * 90,
+  });
+  return { daily, key, created: true };
 }
 
 async function sendDailyAlertEmail(
@@ -457,6 +527,21 @@ export default {
         return json({ success: true, items }, 200, env);
       }
 
+      if (url.pathname === "/daily" && request.method === "GET") {
+        if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
+        const date = todayIsoDateUTC();
+        const result = await ensureCommanderDaily(env, date);
+        if (result.created) {
+          await logSystemBriefGenerated(env, {
+            date,
+            source: "api",
+            key: result.key,
+            success: true,
+          });
+        }
+        return json(result.daily, 200, env);
+      }
+
       if (url.pathname === "/api/brief/test" && request.method === "GET") {
         if (!requireAdmin(request, env)) return json({ error: "unauthorized" }, 401, env);
         const userId = String(url.searchParams.get("userId") || "colonel").trim() || "colonel";
@@ -628,20 +713,22 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     try {
-      const sendWindow = shouldSendNow(env);
-      if (!sendWindow.match) {
-        console.log(
-          `scheduled skip: timezone=${sendWindow.timezone} now=${sendWindow.nowHHMM} target=${sendWindow.sendHHMM}`
-        );
-        return;
-      }
-
       if (!env.DAILY_BRIEF_LOG) {
         console.log("scheduled daily brief skipped: DAILY_BRIEF_LOG KV not bound");
         return;
       }
 
-      const date = sendWindow.ymd || todayIsoDateUTC();
+      const date = todayIsoDateUTC();
+
+      const commander = await ensureCommanderDaily(env, date);
+      if (commander.created) {
+        await logSystemBriefGenerated(env, {
+          date,
+          source: "scheduled",
+          key: commander.key,
+          success: true,
+        });
+      }
 
       const daily = await ensureTodayDailyBrief(env, date);
       if (daily.created) {

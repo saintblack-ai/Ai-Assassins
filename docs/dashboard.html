@@ -62,7 +62,10 @@
       <article class="xl:col-span-2 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Command Center</h2>
-          <button id="btnGenerateBrief" class="rounded-md border border-neonSoft/60 bg-neonSoft/20 px-3 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Generate Brief</button>
+          <div class="flex gap-2">
+            <button id="btnCommander0700" class="rounded-md border border-neonSoft/60 bg-neonSoft/20 px-3 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Commander Brief 0700</button>
+            <button id="btnGenerateBrief" class="rounded-md border border-neonSoft/60 bg-neonSoft/20 px-3 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Generate Brief</button>
+          </div>
         </div>
         <p id="briefStatus" class="mt-3 text-xs text-muted">Ready</p>
         <pre id="terminalBox" class="mt-3 h-[26rem] overflow-auto rounded-lg border border-neonSoft/30 bg-black/50 p-3 text-xs leading-relaxed text-green-200">Awaiting command...</pre>
@@ -73,6 +76,19 @@
         <p id="dailyBriefMeta" class="mt-3 text-xs text-muted">Loading latest brief...</p>
         <pre id="dailyBriefBox" class="mt-3 h-[26rem] overflow-auto rounded-lg border border-neonSoft/30 bg-black/45 p-3 text-xs leading-relaxed text-green-100">Loading...</pre>
       </article>
+    </section>
+
+    <section class="mt-6 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+      <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Commander Daily 0700</h2>
+      <div id="commanderCard" class="mt-3 grid grid-cols-1 gap-2 text-sm text-slate-200 sm:grid-cols-2">
+        <div><span class="text-muted">Date:</span> <span id="cmdDate">-</span></div>
+        <div><span class="text-muted">Mission:</span> <span id="cmdMission">-</span></div>
+        <div><span class="text-muted">Revenue:</span> <span id="cmdRevenue">-</span></div>
+        <div><span class="text-muted">Brand Growth:</span> <span id="cmdBrand">-</span></div>
+        <div class="sm:col-span-2"><span class="text-muted">Priority 1:</span> <span id="cmdP1">-</span></div>
+        <div class="sm:col-span-2"><span class="text-muted">Priority 2:</span> <span id="cmdP2">-</span></div>
+        <div class="sm:col-span-2"><span class="text-muted">Priority 3:</span> <span id="cmdP3">-</span></div>
+      </div>
     </section>
 
     <section class="mt-6 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
@@ -230,16 +246,48 @@
         }
       }
 
+      async function loadCommanderDaily() {
+        const btn = byId("btnCommander0700");
+        if (btn) btn.disabled = true;
+        try {
+          const payload = await fetchJson("/daily");
+          setText("cmdDate", payload?.date || "N/A");
+          setText("cmdMission", payload?.mission || "N/A");
+          setText("cmdRevenue", payload?.revenue_status || "N/A");
+          setText("cmdBrand", payload?.brand_growth || "N/A");
+          setText("cmdP1", payload?.priority_1 || "N/A");
+          setText("cmdP2", payload?.priority_2 || "N/A");
+          setText("cmdP3", payload?.priority_3 || "N/A");
+          setError("");
+        } catch (error) {
+          console.error("[Dashboard] commander daily error", error);
+          setText("cmdDate", "N/A");
+          setText("cmdMission", "N/A");
+          setText("cmdRevenue", "N/A");
+          setText("cmdBrand", "N/A");
+          setText("cmdP1", "N/A");
+          setText("cmdP2", "N/A");
+          setText("cmdP3", "N/A");
+          setError("Commander daily feed unavailable.");
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      }
+
       function wireEvents() {
         const btn = byId("btnGenerateBrief");
         if (btn) {
           btn.addEventListener("click", generateBrief);
         }
+        const commanderBtn = byId("btnCommander0700");
+        if (commanderBtn) {
+          commanderBtn.addEventListener("click", loadCommanderDaily);
+        }
       }
 
       async function init() {
         wireEvents();
-        await Promise.all([loadStats(), loadDailyBrief()]);
+        await Promise.all([loadStats(), loadDailyBrief(), loadCommanderDaily()]);
       }
 
       if (document.readyState === "loading") {

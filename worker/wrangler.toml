@@ -51,8 +51,8 @@ id = "22942df275bd4797b34b93224e8738c7"
 enabled = true
 
 [triggers]
-# Run hourly and gate in scheduled() using BRIEF_TIMEZONE + BRIEF_SEND_HHMM (default 0700).
-crons = ["0 * * * *"]
+# Daily Commander Mode trigger
+crons = ["0 7 * * *"]
 
 [[kv_namespaces]]
 binding = "BRIEF_LOG"
