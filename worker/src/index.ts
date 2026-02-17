@@ -54,8 +54,10 @@ type Env = {
   STRIPE_WEBHOOK_SECRET?: string;
   STRIPE_PRICE_ID_PRO?: string;
   STRIPE_PRICE_ID_ELITE?: string;
+  STRIPE_PRICE_ID_ENTERPRISE?: string;
   STRIPE_PRICE_PRO?: string;
   STRIPE_PRICE_ELITE?: string;
+  STRIPE_PRICE_ENTERPRISE?: string;
   ENTERPRISE_DAILY_LIMIT?: string;
 };
 
@@ -101,8 +103,11 @@ function stripeNotConfigured(env?: Env): Response {
   return json({ success: false, error: "Stripe not configured" }, 503, env);
 }
 
-function stripePriceId(env: Env, plan: "pro" | "elite"): string {
+function stripePriceId(env: Env, plan: "pro" | "elite" | "enterprise"): string {
   if (plan === "pro") return String(env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_PRO || "").trim();
+  if (plan === "enterprise") {
+    return String(env.STRIPE_PRICE_ID_ENTERPRISE || env.STRIPE_PRICE_ENTERPRISE || "").trim();
+  }
   return String(env.STRIPE_PRICE_ID_ELITE || env.STRIPE_PRICE_ELITE || "").trim();
 }
 
@@ -183,6 +188,15 @@ type CommanderDaily = {
   is_premium_locked: boolean;
 };
 
+type RevenueFortressBrief = {
+  date: string;
+  top_priorities: string[];
+  revenue_actions: string[];
+  marketing_actions: string[];
+  build_actions: string[];
+  risks_alerts: string[];
+};
+
 function commandBriefKey(date: string): string {
   return `command:${date}`;
 }
@@ -190,6 +204,12 @@ function commandBriefKey(date: string): string {
 function commanderDailyKey(date: string): string {
   return `daily_logs:${date}`;
 }
+
+function revenueBriefKey(date: string): string {
+  return `brief:${date}`;
+}
+
+const revenueBriefLatestKey = "brief:latest";
 
 function isCommanderDaily(value: unknown): value is CommanderDaily {
   if (!value || typeof value !== "object") return false;
@@ -269,7 +289,9 @@ async function buildRevenueSummary(env: Env): Promise<{
       if (String(evt?.event || "").includes("checkout") || String(evt?.event || "").includes("webhook_stripe")) {
         totalSubscriptions += 1;
       }
-      dailyRevenue[day] = (dailyRevenue[day] || 0) + (tier === "elite" ? 14.99 : tier === "pro" ? 4.99 : 0);
+      const amount = Number(evt?.amount);
+      const fallback = tier === "elite" ? 14.99 : tier === "enterprise" ? 49.99 : tier === "pro" ? 4.99 : 0;
+      dailyRevenue[day] = (dailyRevenue[day] || 0) + (Number.isFinite(amount) && amount > 0 ? amount : fallback);
     } catch {
       // ignore malformed event
     }
@@ -282,6 +304,168 @@ async function buildRevenueSummary(env: Env): Promise<{
     daily_revenue: dailyRevenue,
     tier_breakdown: tierBreakdown,
   };
+}
+
+function jsonArray(value: unknown, fallback: string[]): string[] {
+  if (!Array.isArray(value)) return fallback;
+  const out = value.map((x) => String(x || "").trim()).filter(Boolean);
+  return out.length ? out : fallback;
+}
+
+function deterministicRevenueBrief(date: string): RevenueFortressBrief {
+  return {
+    date,
+    top_priorities: [
+      "Ship one high-impact product improvement before noon.",
+      "Run one monetization action tied to upgrade conversion.",
+      "Close one reliability item blocking daily execution.",
+    ],
+    revenue_actions: [
+      "Review checkout conversion drop-offs and patch one friction point.",
+      "Send Pro/Elite upgrade nudge to active free users.",
+      "Follow up on fresh enterprise leads from last 24 hours.",
+    ],
+    marketing_actions: [
+      "Publish one command-centered social proof post.",
+      "Distribute one short-form clip with pricing CTA.",
+      "Update landing copy based on yesterday's conversion behavior.",
+    ],
+    build_actions: [
+      "Verify cron-generated brief persisted in KV.",
+      "Run endpoint smoke tests for /api/status and /api/brief/latest.",
+      "Review error logs and close one production risk.",
+    ],
+    risks_alerts: [
+      "Watch for Stripe webhook delivery failures.",
+      "Monitor rate-limit spikes that may indicate abuse traffic.",
+    ],
+  };
+}
+
+async function maybeOpenAIBrief(env: Env, date: string): Promise<RevenueFortressBrief | null> {
+  if (!env.OPENAI_API_KEY) return null;
+  const payload = {
+    model: env.OPENAI_MODEL || "gpt-4.1-mini",
+    input: [
+      {
+        role: "system",
+        content: [{ type: "input_text", text: "Return strict JSON only." }],
+      },
+      {
+        role: "user",
+        content: [{ type: "input_text", text: `Generate daily operations brief for ${date}.` }],
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "revenue_brief",
+        strict: true,
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            top_priorities: { type: "array", items: { type: "string" } },
+            revenue_actions: { type: "array", items: { type: "string" } },
+            marketing_actions: { type: "array", items: { type: "string" } },
+            build_actions: { type: "array", items: { type: "string" } },
+            risks_alerts: { type: "array", items: { type: "string" } },
+          },
+          required: [
+            "top_priorities",
+            "revenue_actions",
+            "marketing_actions",
+            "build_actions",
+            "risks_alerts",
+          ],
+        },
+      },
+    },
+  };
+
+  try {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+    if (!r.ok) return null;
+    const data: any = await r.json();
+    const raw = typeof data?.output_text === "string" ? data.output_text : "";
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    return {
+      date,
+      top_priorities: jsonArray(parsed?.top_priorities, deterministicRevenueBrief(date).top_priorities),
+      revenue_actions: jsonArray(parsed?.revenue_actions, deterministicRevenueBrief(date).revenue_actions),
+      marketing_actions: jsonArray(parsed?.marketing_actions, deterministicRevenueBrief(date).marketing_actions),
+      build_actions: jsonArray(parsed?.build_actions, deterministicRevenueBrief(date).build_actions),
+      risks_alerts: jsonArray(parsed?.risks_alerts, deterministicRevenueBrief(date).risks_alerts),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function ensureRevenueBrief(
+  env: Env,
+  date: string
+): Promise<{ brief: RevenueFortressBrief; key: string; created: boolean }> {
+  if (!env.DAILY_BRIEF_LOG) throw new Error("DAILY_BRIEF_LOG KV binding is missing");
+  const key = revenueBriefKey(date);
+  const existingRaw = await env.DAILY_BRIEF_LOG.get(key);
+  if (existingRaw) {
+    try {
+      const parsed = JSON.parse(existingRaw);
+      if (parsed?.date && parsed?.top_priorities) {
+        await env.DAILY_BRIEF_LOG.put(revenueBriefLatestKey, JSON.stringify(parsed), {
+          expirationTtl: 60 * 60 * 24 * 90,
+        });
+        return { brief: parsed as RevenueFortressBrief, key, created: false };
+      }
+    } catch {
+      // regenerate malformed entry
+    }
+  }
+
+  const openAIBrief = await maybeOpenAIBrief(env, date);
+  const brief = openAIBrief || deterministicRevenueBrief(date);
+  await env.DAILY_BRIEF_LOG.put(key, JSON.stringify(brief), { expirationTtl: 60 * 60 * 24 * 90 });
+  await env.DAILY_BRIEF_LOG.put(revenueBriefLatestKey, JSON.stringify(brief), { expirationTtl: 60 * 60 * 24 * 90 });
+  return { brief, key, created: true };
+}
+
+async function hmacSha256Hex(secret: string, payload: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    enc.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(payload));
+  return Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+async function verifyStripeSignature(rawBody: string, signatureHeader: string, secret: string): Promise<boolean> {
+  if (!secret) return true;
+  if (!signatureHeader) return false;
+  const parts = signatureHeader.split(",").map((x) => x.trim());
+  const t = parts.find((x) => x.startsWith("t="))?.slice(2);
+  const v1 = parts.find((x) => x.startsWith("v1="))?.slice(3);
+  if (!t || !v1) return false;
+
+  const age = Math.abs(Date.now() / 1000 - Number(t));
+  if (!Number.isFinite(age) || age > 300) return false;
+
+  const expected = await hmacSha256Hex(secret, `${t}.${rawBody}`);
+  return expected === v1;
 }
 
 async function buildCommanderDaily(
@@ -482,8 +666,17 @@ async function runDailyNotifier(
   };
 }
 
-async function handleUnifiedWebhook(request: Request, env: Env): Promise<Response> {
-  const payload = await request.json().catch(() => null);
+async function handleUnifiedWebhook(
+  request: Request,
+  env: Env,
+  rawBody: string
+): Promise<Response> {
+  let payload: any = null;
+  try {
+    payload = JSON.parse(rawBody || "{}");
+  } catch {
+    return blocked(400, env);
+  }
   if (!payload || typeof payload !== "object") return blocked(400, env);
 
   const webhookType = String((payload as any)?.type || "").toLowerCase();
@@ -492,7 +685,11 @@ async function handleUnifiedWebhook(request: Request, env: Env): Promise<Respons
   const stripeSecretConfigured = Boolean(String(env.STRIPE_WEBHOOK_SECRET || "").trim());
   const secretValid = validateRevenueCatSecret(request, env);
   const stripeSig = request.headers.get("Stripe-Signature") || "";
-  const stripeSecretValid = !stripeSecretConfigured || Boolean(stripeSig);
+  const stripeSecretValid = await verifyStripeSignature(
+    rawBody,
+    stripeSig,
+    String(env.STRIPE_WEBHOOK_SECRET || "").trim()
+  );
 
   if (secretConfigured && !secretValid) return blocked(401, env);
   if (!isRevenueCat && stripeSecretConfigured && !stripeSecretValid) return blocked(401, env);
@@ -533,7 +730,16 @@ async function handleUnifiedWebhook(request: Request, env: Env): Promise<Respons
   }
 
   await setTier(env, userId, tier);
-  await logRevenueEvent(env, userId, tier, "webhook_stripe", true, userEmail);
+  const amount = Number(stripeObject?.amount_total || stripeObject?.amount_subtotal || 0);
+  await logRevenueEvent(
+    env,
+    userId,
+    tier,
+    "webhook_stripe",
+    true,
+    userEmail,
+    amount > 0 ? Number((amount / 100).toFixed(2)) : null
+  );
   return json({ success: true, source: "stripe", user_id: userId, tier }, 200, env);
 }
 
@@ -566,7 +772,8 @@ export default {
 
     try {
       if ((url.pathname === "/api/webhook" || url.pathname === "/revenuecat/webhook") && request.method === "POST") {
-        return await handleUnifiedWebhook(request, env);
+        const rawBody = await request.text().catch(() => "");
+        return await handleUnifiedWebhook(request, env, rawBody);
       }
 
       if (url.pathname === "/health" && request.method === "GET") {
@@ -577,6 +784,19 @@ export default {
             openai_connected: Boolean(env.OPENAI_API_KEY),
             cron_active: true,
             timestamp: new Date().toISOString(),
+          },
+          200,
+          env
+        );
+      }
+
+      if (url.pathname === "/api/status" && request.method === "GET") {
+        return json(
+          {
+            success: true,
+            version: "revenue-fortress-phase-2",
+            schedule: "0 7 * * *",
+            kv_bindings_ok: Boolean(env.USER_STATE && env.USAGE_STATE && env.REVENUE_LOG && env.DAILY_BRIEF_LOG),
           },
           200,
           env
@@ -643,6 +863,32 @@ export default {
         if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
         const items = await listRecentDailyBriefs(env, 7);
         return json({ success: true, items }, 200, env);
+      }
+
+      if (url.pathname === "/api/brief/latest" && request.method === "GET") {
+        if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
+        const date = todayIsoDateUTC();
+        const result = await ensureRevenueBrief(env, date);
+        if (result.created) {
+          await logSystemBriefGenerated(env, {
+            date,
+            source: "api",
+            key: result.key,
+            success: true,
+          });
+        }
+        return json(result.brief, 200, env);
+      }
+
+      if (url.pathname.startsWith("/api/brief/") && request.method === "GET") {
+        const date = url.pathname.slice("/api/brief/".length);
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          // allow explicit non-date routes handled below, e.g. /api/brief/test
+        } else {
+          if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
+          const result = await ensureRevenueBrief(env, date);
+          return json(result.brief, 200, env);
+        }
       }
 
       if (url.pathname === "/daily" && request.method === "GET") {
@@ -777,14 +1023,14 @@ export default {
 
       if ((url.pathname === "/api/checkout" || url.pathname === "/api/checkout-session") && request.method === "POST") {
         const body = await request.json().catch(() => ({} as any));
-        const plan = String(body?.plan || "").toLowerCase();
-        if (!["pro", "elite"].includes(plan)) {
+        const plan = String(body?.plan || body?.tier || "").toLowerCase();
+        if (!["pro", "elite", "enterprise"].includes(plan)) {
           return blocked(400, env);
         }
         if (!env.STRIPE_SECRET_KEY) {
           return stripeNotConfigured(env);
         }
-        const priceId = stripePriceId(env, plan as "pro" | "elite");
+        const priceId = stripePriceId(env, plan as "pro" | "elite" | "enterprise");
         if (!priceId) {
           return stripeNotConfigured(env);
         }
@@ -818,7 +1064,16 @@ export default {
         if (!r.ok) return blocked(502, env);
         const data: any = await r.json();
         if (!data?.url) return blocked(502, env);
-        await logRevenueEvent(env, checkoutRef || "anonymous", plan, "checkout_created", true, userEmail);
+        const checkoutAmount = plan === "elite" ? 14.99 : plan === "enterprise" ? 49.99 : 4.99;
+        await logRevenueEvent(
+          env,
+          checkoutRef || "anonymous",
+          plan,
+          "checkout_created",
+          true,
+          userEmail,
+          checkoutAmount
+        );
         return json({ success: true, url: data.url, id: data.id }, 200, env);
       }
 
@@ -836,6 +1091,12 @@ export default {
               tier: "elite",
               price_id: stripePriceId(env, "elite"),
               monthly_price_usd: 14.99,
+            },
+            {
+              id: "enterprise",
+              tier: "enterprise",
+              price_id: stripePriceId(env, "enterprise"),
+              monthly_price_usd: 49.99,
             },
           ],
         }, 200, env);
@@ -875,6 +1136,16 @@ export default {
       }
 
       const date = todayIsoDateUTC();
+
+      const revenueBrief = await ensureRevenueBrief(env, date);
+      if (revenueBrief.created) {
+        await logSystemBriefGenerated(env, {
+          date,
+          source: "scheduled",
+          key: revenueBrief.key,
+          success: true,
+        });
+      }
 
       const commander = await ensureCommanderDaily(env, date, true);
       if (commander.created) {

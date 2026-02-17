@@ -34,7 +34,8 @@ export async function logRevenueEvent(
   tier: string,
   event: string,
   success: boolean,
-  userEmail?: string | null
+  userEmail?: string | null,
+  amount?: number | null
 ): Promise<void> {
   if (!env.REVENUE_LOG) return;
   const ts = Date.now();
@@ -47,6 +48,7 @@ export async function logRevenueEvent(
       tier,
       event,
       success,
+      amount: amount ?? null,
       timestamp: new Date(ts).toISOString(),
     }),
     { expirationTtl: 60 * 60 * 24 * 90 }

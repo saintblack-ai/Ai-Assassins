@@ -18,6 +18,14 @@ curl -i https://ai-assassins-api.quandrix357.workers.dev/api/me \
 ```
 4. Expected: `200` with resolved tier + usage counters.
 
+## 2b) Test API status
+```bash
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/status
+```
+Expected:
+- HTTP `200`
+- JSON includes `success`, `version`, `schedule`, `kv_bindings_ok`
+
 ## 3) Test `POST /api/lead`
 ```bash
 curl -i -X POST https://ai-assassins-api.quandrix357.workers.dev/api/lead \
@@ -150,6 +158,20 @@ Expected:
   - `total_subscriptions`
   - `daily_revenue`
   - `tier_breakdown`
+
+## 14b) Test latest daily revenue brief endpoint
+```bash
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/brief/latest
+```
+Expected:
+- HTTP `200`
+- JSON includes:
+  - `date`
+  - `top_priorities`
+  - `revenue_actions`
+  - `marketing_actions`
+  - `build_actions`
+  - `risks_alerts`
 
 ## 15) Test free → pro upgrade flow
 1. Call `POST /api/checkout-session` for `plan=pro`.

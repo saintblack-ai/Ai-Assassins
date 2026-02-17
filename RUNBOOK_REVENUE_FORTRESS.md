@@ -12,7 +12,7 @@ Cloudflare Worker API (workers.dev)
 https://ai-assassins-api.quandrix357.workers.dev
         |
         v
-KV Namespaces (USER_STATE, USAGE_STATE, REVENUE_LOG, LEADS)
+KV Namespaces (USER_STATE, USAGE_STATE, REVENUE_LOG, LEADS, DAILY_BRIEF_LOG, COMMAND_LOG)
         |
         v
 OpenAI + Stripe + external data APIs
@@ -111,10 +111,56 @@ cd /Users/quandrixblackburn/projects/Ai-Assassins
 git grep -nE "OPENAI_API_KEY|STRIPE_SECRET_KEY|REVENUECAT_WEBHOOK_SECRET|ghp_[A-Za-z0-9]{20,}" || true
 ```
 
+## Secret rotation
+Rotate credentials without committing them:
+
+```bash
+cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
+npx wrangler secret put OPENAI_API_KEY
+npx wrangler secret put STRIPE_SECRET_KEY
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put REVENUECAT_WEBHOOK_SECRET
+```
+
+After rotation:
+1. Deploy Worker.
+2. Run `/api/status`, `/api/products`, and checkout smoke checks.
+
+## Change cron schedule
+Edit `/Users/quandrixblackburn/projects/Ai-Assassins/worker/wrangler.toml`:
+
+```toml
+[triggers]
+crons = ["0 7 * * *"]
+```
+
+Then redeploy:
+
+```bash
+cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
+npx wrangler deploy
+```
+
+## Read KV logs
+Use Cloudflare dashboard KV viewer or Wrangler:
+
+```bash
+cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
+npx wrangler kv key list --binding DAILY_BRIEF_LOG --prefix brief:
+npx wrangler kv key list --binding REVENUE_LOG --prefix revenue_log:
+npx wrangler kv key list --binding LEADS --prefix lead:
+```
+
 ## Smoke tests
 
 ### API checks
 ```bash
+# /api/status
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/status
+
+# /api/brief/latest
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/brief/latest
+
 # /api/me
 curl -i https://ai-assassins-api.quandrix357.workers.dev/api/me
 
