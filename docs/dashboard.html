@@ -85,6 +85,7 @@
         <div><span class="text-muted">Mission:</span> <span id="cmdMission">-</span></div>
         <div><span class="text-muted">Revenue:</span> <span id="cmdRevenue">-</span></div>
         <div><span class="text-muted">Brand Growth:</span> <span id="cmdBrand">-</span></div>
+        <div><span class="text-muted">Premium Lock:</span> <span id="cmdPremiumLock">-</span></div>
         <div class="sm:col-span-2"><span class="text-muted">Priority 1:</span> <span id="cmdP1">-</span></div>
         <div class="sm:col-span-2"><span class="text-muted">Priority 2:</span> <span id="cmdP2">-</span></div>
         <div class="sm:col-span-2"><span class="text-muted">Priority 3:</span> <span id="cmdP3">-</span></div>
@@ -255,6 +256,7 @@
           setText("cmdMission", payload?.mission || "N/A");
           setText("cmdRevenue", payload?.revenue_status || "N/A");
           setText("cmdBrand", payload?.brand_growth || "N/A");
+          setText("cmdPremiumLock", payload?.is_premium_locked ? "LOCKED (Pro required)" : "UNLOCKED");
           setText("cmdP1", payload?.priority_1 || "N/A");
           setText("cmdP2", payload?.priority_2 || "N/A");
           setText("cmdP3", payload?.priority_3 || "N/A");
@@ -265,6 +267,7 @@
           setText("cmdMission", "N/A");
           setText("cmdRevenue", "N/A");
           setText("cmdBrand", "N/A");
+          setText("cmdPremiumLock", "N/A");
           setText("cmdP1", "N/A");
           setText("cmdP2", "N/A");
           setText("cmdP3", "N/A");

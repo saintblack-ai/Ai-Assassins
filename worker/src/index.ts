@@ -172,6 +172,7 @@ type CommanderDaily = {
   priority_1: string;
   priority_2: string;
   priority_3: string;
+  is_premium_locked: boolean;
 };
 
 function commandBriefKey(date: string): string {
@@ -191,10 +192,25 @@ function isCommanderDaily(value: unknown): value is CommanderDaily {
     typeof obj.brand_growth === "string" &&
     typeof obj.priority_1 === "string" &&
     typeof obj.priority_2 === "string" &&
-    typeof obj.priority_3 === "string";
+    typeof obj.priority_3 === "string" &&
+    typeof obj.is_premium_locked === "boolean";
 }
 
-async function buildCommanderDaily(env: Env, date: string): Promise<CommanderDaily> {
+function requiredEnvWarnings(env: Env): string[] {
+  const warnings: string[] = [];
+  if (!env.OPENAI_API_KEY) warnings.push("OPENAI_API_KEY is missing");
+  if (!env.RESEND_API_KEY) warnings.push("RESEND_API_KEY is missing");
+  if (!env.FROM_EMAIL) warnings.push("FROM_EMAIL is missing");
+  if (!env.DAILY_ALERT_TO) warnings.push("DAILY_ALERT_TO is missing");
+  if (!env.STRIPE_SECRET_KEY) warnings.push("STRIPE_SECRET_KEY is missing");
+  return warnings;
+}
+
+async function buildCommanderDaily(
+  env: Env,
+  date: string,
+  isPremiumLocked: boolean
+): Promise<CommanderDaily> {
   const metrics = await getMetricsSnapshot(env);
   const nowHourUtc = new Date().getUTCHours();
   const morningTimestampCheck = nowHourUtc < 12;
@@ -213,25 +229,34 @@ async function buildCommanderDaily(env: Env, date: string): Promise<CommanderDai
     priority_1: "Execute one high-conversion content drop linked to a pricing CTA.",
     priority_2: "Review usage and tier transitions, then trigger direct outreach to top leads.",
     priority_3: "Lock one infrastructure reliability improvement and verify alert pipelines.",
+    is_premium_locked: isPremiumLocked,
+    // Stripe enforcement hook to be implemented next phase
   };
 }
 
 async function ensureCommanderDaily(
   env: Env,
-  date: string
+  date: string,
+  isPremiumLocked: boolean
 ): Promise<{ daily: CommanderDaily; key: string; created: boolean }> {
-  if (!env.DAILY_BRIEF_LOG) throw new Error("DAILY_BRIEF_LOG KV not bound");
+  if (!env.DAILY_BRIEF_LOG) throw new Error("DAILY_BRIEF_LOG KV binding is missing");
   const key = commanderDailyKey(date);
   const existing = await env.DAILY_BRIEF_LOG.get(key);
   if (existing) {
     try {
-      const parsed = JSON.parse(existing);
-      if (isCommanderDaily(parsed)) return { daily: parsed, key, created: false };
+      const parsedRaw = JSON.parse(existing);
+      if (isCommanderDaily(parsedRaw)) {
+        const parsed: CommanderDaily = {
+          ...parsedRaw,
+          is_premium_locked: isPremiumLocked,
+        };
+        return { daily: parsed, key, created: false };
+      }
     } catch {
       // fall through and regenerate
     }
   }
-  const daily = await buildCommanderDaily(env, date);
+  const daily = await buildCommanderDaily(env, date, isPremiumLocked);
   await env.DAILY_BRIEF_LOG.put(key, JSON.stringify(daily), {
     expirationTtl: 60 * 60 * 24 * 90,
   });
@@ -447,6 +472,10 @@ export default {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    const envWarnings = requiredEnvWarnings(env);
+    if (envWarnings.length) {
+      console.warn("[config-warning]", envWarnings.join("; "));
+    }
 
     if (!request.url.startsWith("https://")) return blocked(400, env);
 
@@ -468,6 +497,20 @@ export default {
     try {
       if ((url.pathname === "/api/webhook" || url.pathname === "/revenuecat/webhook") && request.method === "POST") {
         return await handleUnifiedWebhook(request, env);
+      }
+
+      if (url.pathname === "/health" && request.method === "GET") {
+        return json(
+          {
+            worker_status: "operational",
+            kv_bindings: Boolean(env.USER_STATE && env.USAGE_STATE && env.REVENUE_LOG && env.DAILY_BRIEF_LOG),
+            openai_connected: Boolean(env.OPENAI_API_KEY),
+            cron_active: true,
+            timestamp: new Date().toISOString(),
+          },
+          200,
+          env
+        );
       }
 
       if (url.pathname === "/api/command-brief" && request.method === "GET") {
@@ -530,7 +573,21 @@ export default {
       if (url.pathname === "/daily" && request.method === "GET") {
         if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
         const date = todayIsoDateUTC();
-        const result = await ensureCommanderDaily(env, date);
+        const auth = getAuthContext(request);
+        const tier = auth.userId ? await getTier(env, auth.userId) : "free";
+        const isPremiumLocked = !(tier === "pro" || tier === "elite" || tier === "enterprise");
+        const result = await ensureCommanderDaily(env, date, isPremiumLocked);
+        const responseDaily: CommanderDaily = isPremiumLocked
+          ? {
+            ...result.daily,
+            revenue_status: "Premium Daily Brief required for detailed revenue analytics.",
+            brand_growth: "Premium Daily Brief required for detailed brand analytics.",
+            is_premium_locked: true,
+          }
+          : {
+            ...result.daily,
+            is_premium_locked: false,
+          };
         if (result.created) {
           await logSystemBriefGenerated(env, {
             date,
@@ -539,7 +596,7 @@ export default {
             success: true,
           });
         }
-        return json(result.daily, 200, env);
+        return json(responseDaily, 200, env);
       }
 
       if (url.pathname === "/api/brief/test" && request.method === "GET") {
@@ -713,6 +770,11 @@ export default {
 
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     try {
+      console.log("0700 Commander Mode Triggered:", new Date().toISOString());
+      const envWarnings = requiredEnvWarnings(env);
+      if (envWarnings.length) {
+        console.warn("[config-warning]", envWarnings.join("; "));
+      }
       if (!env.DAILY_BRIEF_LOG) {
         console.log("scheduled daily brief skipped: DAILY_BRIEF_LOG KV not bound");
         return;
@@ -720,7 +782,7 @@ export default {
 
       const date = todayIsoDateUTC();
 
-      const commander = await ensureCommanderDaily(env, date);
+      const commander = await ensureCommanderDaily(env, date, true);
       if (commander.created) {
         await logSystemBriefGenerated(env, {
           date,
