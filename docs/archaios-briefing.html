@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Archaios Daily Briefing Settings</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon-192.png">
+  <meta name="theme-color" content="#0b0f13">
+  <style>
+    :root { --bg:#070b10; --card:#101923; --border:#274463; --text:#e7eef7; --muted:#9fb0c5; --accent:#73d8ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:radial-gradient(circle at 20% 0%, #0f1724 0%, var(--bg) 55%); color:var(--text); font-family: "JetBrains Mono","Fira Code","IBM Plex Mono","Consolas",monospace; }
+    .wrap { max-width: 860px; margin: 0 auto; padding: 22px; }
+    .card { background:linear-gradient(180deg,#0e1825,#0b1119); border:1px solid var(--border); border-radius:12px; padding:14px; margin-top:12px; }
+    .row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+    .full { grid-column: 1 / -1; }
+    label { font-size:.85rem; color:var(--muted); display:block; margin-bottom:4px; }
+    input, select, button, textarea { width:100%; border-radius:10px; border:1px solid var(--border); background:#101b29; color:var(--text); padding:10px; }
+    button { cursor:pointer; width:auto; padding:10px 14px; }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .muted { color:var(--muted); }
+    pre { white-space:pre-wrap; word-break:break-word; max-height:320px; overflow:auto; background:#0b1320; border:1px solid var(--border); border-radius:10px; padding:10px; }
+    .ok { color:#8be9a3; }
+    .err { color:#ff8f8f; }
+    a { color:var(--accent); text-decoration:none; }
+    @media (max-width: 720px){ .row { grid-template-columns:1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 style="margin:0;">Archaios Daily Briefing Settings</h1>
+    <div class="muted">Configure timezone, send time, and recipient. Admin token required for save/test endpoints.</div>
+    <div class="actions">
+      <a href="./index.html">← Back to Dashboard</a>
+    </div>
+
+    <div class="card">
+      <div class="row">
+        <div class="full">
+          <label for="apiBase">API Base</label>
+          <input id="apiBase" placeholder="https://ai-assassins-api.quandrix357.workers.dev">
+        </div>
+        <div>
+          <label for="userId">User ID</label>
+          <input id="userId" value="colonel">
+        </div>
+        <div>
+          <label for="adminToken">Admin Token</label>
+          <input id="adminToken" type="password" placeholder="Paste ADMIN_TOKEN">
+        </div>
+        <div>
+          <label for="timezone">Timezone</label>
+          <select id="timezone">
+            <option>America/Chicago</option>
+            <option>America/New_York</option>
+            <option>America/Denver</option>
+            <option>America/Los_Angeles</option>
+            <option>UTC</option>
+          </select>
+        </div>
+        <div>
+          <label for="sendTime">Send Time (HH:MM)</label>
+          <input id="sendTime" type="time" value="07:00">
+        </div>
+        <div class="full">
+          <label for="emailTo">Brief Email To</label>
+          <input id="emailTo" type="email" placeholder="you@company.com">
+        </div>
+      </div>
+
+      <div class="actions">
+        <button id="btnLoad">Load Current Settings</button>
+        <button id="btnSave">Save Settings</button>
+        <button id="btnRunNow">Run Archaios Brief Now</button>
+      </div>
+      <div id="status" class="muted" style="margin-top:10px;">Ready.</div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0;">Result</h3>
+      <pre id="result">{}</pre>
+    </div>
+  </div>
+  <script src="./archaios-briefing.js"></script>
+</body>
+</html>
