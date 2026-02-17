@@ -13,7 +13,7 @@ export async function handleBrief(request: Request, env: Env, userId: string, ti
   const usedToday = await getUsage(env, userId);
   if (!isUsageAllowed(tier, usedToday, env as any)) {
     await logRevenueEvent(env, userId, tier, "brief_limit_blocked", false);
-    return blocked(402);
+    return limitReached(usedToday, tierLimit(tier, env as any));
   }
 
   const OPENAI_API_KEY = env.OPENAI_API_KEY;
@@ -27,7 +27,9 @@ export async function handleBrief(request: Request, env: Env, userId: string, ti
 
   await incrementUsage(env, userId);
   await saveBriefHistory(env, userId, brief);
-  await logRevenueEvent(env, userId, tier, "brief_generated", true);
+  if (tier !== "free") {
+    await logRevenueEvent(env, userId, tier, "brief_generated", true);
+  }
 
   return ok({
     success: true,
@@ -143,6 +145,24 @@ function ok(data: unknown, status = 200): Response {
 function blocked(status = 403, missing: string[] = []): Response {
   return new Response(JSON.stringify({ success: false, error: "Request blocked", ...(missing.length ? { missing } : {}) }), {
     status,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Content-Security-Policy": "default-src 'self'"
+    }
+  });
+}
+
+function limitReached(usageToday: number, usageLimit: number | null): Response {
+  return new Response(JSON.stringify({
+    success: false,
+    error: "limit reached",
+    usage_today: usageToday,
+    usage_limit: usageLimit,
+  }), {
+    status: 429,
     headers: {
       "Content-Type": "application/json",
       "X-Content-Type-Options": "nosniff",

@@ -51,6 +51,9 @@ type Env = {
   FROM_EMAIL?: string;
   RESEND_API_KEY?: string;
   STRIPE_SECRET_KEY?: string;
+  STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID_PRO?: string;
+  STRIPE_PRICE_ID_ELITE?: string;
   STRIPE_PRICE_PRO?: string;
   STRIPE_PRICE_ELITE?: string;
   ENTERPRISE_DAILY_LIMIT?: string;
@@ -96,6 +99,11 @@ function blocked(status = 403, env?: Env): Response {
 
 function stripeNotConfigured(env?: Env): Response {
   return json({ success: false, error: "Stripe not configured" }, 503, env);
+}
+
+function stripePriceId(env: Env, plan: "pro" | "elite"): string {
+  if (plan === "pro") return String(env.STRIPE_PRICE_ID_PRO || env.STRIPE_PRICE_PRO || "").trim();
+  return String(env.STRIPE_PRICE_ID_ELITE || env.STRIPE_PRICE_ELITE || "").trim();
 }
 
 function withSecurityHeaders(response: Response, env: Env): Response {
@@ -204,6 +212,76 @@ function requiredEnvWarnings(env: Env): string[] {
   if (!env.DAILY_ALERT_TO) warnings.push("DAILY_ALERT_TO is missing");
   if (!env.STRIPE_SECRET_KEY) warnings.push("STRIPE_SECRET_KEY is missing");
   return warnings;
+}
+
+function parseStripePlan(payload: any, env: Env): Tier {
+  const eventType = String(payload?.type || "").toLowerCase();
+  const stripeObject = payload?.data?.object || {};
+  const metadataPlan = String(
+    stripeObject?.metadata?.tier ||
+    stripeObject?.metadata?.plan ||
+    ""
+  ).toLowerCase();
+
+  if (eventType.includes("deleted") || eventType.includes("expired") || eventType.includes("canceled")) {
+    return "free";
+  }
+  if (metadataPlan === "enterprise" || metadataPlan === "elite" || metadataPlan === "pro") {
+    return metadataPlan as Tier;
+  }
+
+  const itemPriceId = String(
+    stripeObject?.items?.data?.[0]?.price?.id ||
+    stripeObject?.lines?.data?.[0]?.price?.id ||
+    ""
+  );
+
+  if (itemPriceId && itemPriceId === stripePriceId(env, "elite")) return "elite";
+  if (itemPriceId && itemPriceId === stripePriceId(env, "pro")) return "pro";
+
+  return "pro";
+}
+
+async function buildRevenueSummary(env: Env): Promise<{
+  total_revenue: number;
+  total_subscriptions: number;
+  daily_revenue: Record<string, number>;
+  tier_breakdown: Record<string, number>;
+}> {
+  if (!env.REVENUE_LOG) {
+    return { total_revenue: 0, total_subscriptions: 0, daily_revenue: {}, tier_breakdown: {} };
+  }
+
+  const listed = await env.REVENUE_LOG.list({ prefix: "revenue_log:", limit: 1000 });
+  const dailyRevenue: Record<string, number> = {};
+  const tierBreakdown: Record<string, number> = { free: 0, pro: 0, elite: 0, enterprise: 0 };
+  let totalSubscriptions = 0;
+
+  for (const key of listed.keys) {
+    const raw = await env.REVENUE_LOG.get(key.name);
+    if (!raw) continue;
+    try {
+      const evt = JSON.parse(raw);
+      const day = String(evt?.timestamp || "").slice(0, 10) || "unknown";
+      const tier = String(evt?.tier || "free");
+      if (tierBreakdown[tier] == null) tierBreakdown[tier] = 0;
+      tierBreakdown[tier] += 1;
+      if (String(evt?.event || "").includes("checkout") || String(evt?.event || "").includes("webhook_stripe")) {
+        totalSubscriptions += 1;
+      }
+      dailyRevenue[day] = (dailyRevenue[day] || 0) + (tier === "elite" ? 14.99 : tier === "pro" ? 4.99 : 0);
+    } catch {
+      // ignore malformed event
+    }
+  }
+
+  const totalRevenue = Object.values(dailyRevenue).reduce((sum, n) => sum + n, 0);
+  return {
+    total_revenue: Number(totalRevenue.toFixed(2)),
+    total_subscriptions: totalSubscriptions,
+    daily_revenue: dailyRevenue,
+    tier_breakdown: tierBreakdown,
+  };
 }
 
 async function buildCommanderDaily(
@@ -410,11 +488,14 @@ async function handleUnifiedWebhook(request: Request, env: Env): Promise<Respons
 
   const webhookType = String((payload as any)?.type || "").toLowerCase();
   const isRevenueCat = Boolean((payload as any)?.event || webhookType.includes("revenuecat"));
-  const auth = request.headers.get("Authorization") || "";
   const secretConfigured = Boolean(String(env.REVENUECAT_WEBHOOK_SECRET || "").trim());
+  const stripeSecretConfigured = Boolean(String(env.STRIPE_WEBHOOK_SECRET || "").trim());
   const secretValid = validateRevenueCatSecret(request, env);
+  const stripeSig = request.headers.get("Stripe-Signature") || "";
+  const stripeSecretValid = !stripeSecretConfigured || Boolean(stripeSig);
 
   if (secretConfigured && !secretValid) return blocked(401, env);
+  if (!isRevenueCat && stripeSecretConfigured && !stripeSecretValid) return blocked(401, env);
 
   if (isRevenueCat) {
     const userId = String((payload as any)?.event?.app_user_id || (payload as any)?.app_user_id || "").trim();
@@ -442,24 +523,13 @@ async function handleUnifiedWebhook(request: Request, env: Env): Promise<Respons
   const userEmail = String(stripeObject?.customer_email || stripeObject?.metadata?.email || "").trim() || null;
   if (!userId) return blocked(400, env);
 
-  let tier: Tier = "free";
-  if (eventType.includes("elite")) tier = "elite";
-  if (eventType.includes("enterprise")) tier = "enterprise";
-  if (eventType.includes("pro")) tier = "pro";
-  if (eventType.includes("deleted") || eventType.includes("expired") || eventType.includes("canceled")) tier = "free";
-
-  const metadataTier = String(
-    stripeObject?.metadata?.tier ||
-    stripeObject?.metadata?.plan ||
-    ""
-  ).toLowerCase();
-  if (metadataTier === "pro" || metadataTier === "elite" || metadataTier === "enterprise" || metadataTier === "free") {
-    tier = metadataTier as Tier;
-  }
-
-  if (eventType.includes("checkout.session.completed") && stripeObject?.metadata?.plan) {
-    const plan = String(stripeObject.metadata.plan).toLowerCase();
-    if (plan === "pro" || plan === "elite" || plan === "enterprise") tier = plan as Tier;
+  let tier: Tier = parseStripePlan(payload, env);
+  if (
+    !eventType.includes("checkout.session.completed") &&
+    !eventType.includes("customer.subscription.updated") &&
+    !eventType.includes("invoice.payment_succeeded")
+  ) {
+    return json({ success: true, source: "stripe", ignored: true }, 200, env);
   }
 
   await setTier(env, userId, tier);
@@ -547,6 +617,11 @@ export default {
           200,
           env
         );
+      }
+
+      if (url.pathname === "/api/revenue-summary" && request.method === "GET") {
+        const summary = await buildRevenueSummary(env);
+        return json(summary, 200, env);
       }
 
       if (url.pathname === "/api/brief/today" && request.method === "GET") {
@@ -700,7 +775,7 @@ export default {
         return await handleBrief(request, env, auth.userId, tier as Tier);
       }
 
-      if (url.pathname === "/api/checkout" && request.method === "POST") {
+      if ((url.pathname === "/api/checkout" || url.pathname === "/api/checkout-session") && request.method === "POST") {
         const body = await request.json().catch(() => ({} as any));
         const plan = String(body?.plan || "").toLowerCase();
         if (!["pro", "elite"].includes(plan)) {
@@ -709,7 +784,7 @@ export default {
         if (!env.STRIPE_SECRET_KEY) {
           return stripeNotConfigured(env);
         }
-        const priceId = plan === "pro" ? String(env.STRIPE_PRICE_PRO || "").trim() : String(env.STRIPE_PRICE_ELITE || "").trim();
+        const priceId = stripePriceId(env, plan as "pro" | "elite");
         if (!priceId) {
           return stripeNotConfigured(env);
         }
@@ -745,6 +820,25 @@ export default {
         if (!data?.url) return blocked(502, env);
         await logRevenueEvent(env, checkoutRef || "anonymous", plan, "checkout_created", true, userEmail);
         return json({ success: true, url: data.url, id: data.id }, 200, env);
+      }
+
+      if (url.pathname === "/api/products" && request.method === "GET") {
+        return json({
+          products: [
+            {
+              id: "pro",
+              tier: "pro",
+              price_id: stripePriceId(env, "pro"),
+              monthly_price_usd: 4.99,
+            },
+            {
+              id: "elite",
+              tier: "elite",
+              price_id: stripePriceId(env, "elite"),
+              monthly_price_usd: 14.99,
+            },
+          ],
+        }, 200, env);
       }
 
       if (url.pathname === "/api/lead" && request.method === "POST") {

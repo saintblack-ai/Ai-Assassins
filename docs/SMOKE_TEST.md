@@ -28,9 +28,9 @@ Expected:
 - HTTP `200`
 - JSON: `{ "success": true, "lead_id": "..." }`
 
-## 4) Test Stripe checkout logic (`POST /api/checkout`)
+## 4) Test Stripe checkout logic (`POST /api/checkout-session`)
 ```bash
-curl -i -X POST https://ai-assassins-api.quandrix357.workers.dev/api/checkout \
+curl -i -X POST https://ai-assassins-api.quandrix357.workers.dev/api/checkout-session \
   -H "content-type: application/json" \
   -d '{"plan":"pro","deviceId":"smoke-test-device","successUrl":"https://saintblack-ai.github.io/Ai-Assassins/success.html","cancelUrl":"https://saintblack-ai.github.io/Ai-Assassins/pricing.html?canceled=1"}'
 ```
@@ -43,6 +43,8 @@ Expected:
 2. Free user expected limit: 5/day.
 3. Pro user expected limit: 50/day.
 4. Elite and Enterprise expected: unlimited unless custom enterprise cap is configured.
+5. When over limit, expected payload includes:
+   - `{ "success": false, "error": "limit reached" }`
 
 ## 6) Test command intelligence endpoints
 
@@ -110,7 +112,7 @@ Expected:
 ## 11) Confirm cron behavior
 1. Ensure `worker/wrangler.toml` has:
    - `[triggers]`
-   - `crons = ["0 * * * *"]`
+   - `crons = ["0 7 * * *"]`
 2. Deploy Worker.
 3. Ensure vars are set: `BRIEF_TIMEZONE`, `BRIEF_SEND_HHMM`, `DAILY_ALERT_TO`, `FROM_EMAIL`.
 4. Wait for cron tick where local time matches `BRIEF_SEND_HHMM`.
@@ -128,3 +130,29 @@ Expected:
 - HTTP `200`
 - Response includes `brief_key`, `command_brief`, `email_sent`, and `email_to`
 - `REVENUE_LOG` includes `type: "daily_brief_sent"`
+
+## 13) Test Stripe webhook event handling
+1. Trigger Stripe test event:
+   - `checkout.session.completed`
+2. Verify:
+   - `POST /api/webhook` returns success
+   - `USER_STATE` tier is updated for target user
+   - `REVENUE_LOG` contains `event: "webhook_stripe"`
+
+## 14) Test revenue summary endpoint
+```bash
+curl -i https://ai-assassins-api.quandrix357.workers.dev/api/revenue-summary
+```
+Expected:
+- HTTP `200`
+- keys:
+  - `total_revenue`
+  - `total_subscriptions`
+  - `daily_revenue`
+  - `tier_breakdown`
+
+## 15) Test free → pro upgrade flow
+1. Call `POST /api/checkout-session` for `plan=pro`.
+2. Complete checkout in Stripe test mode.
+3. Confirm `GET /api/me` shows tier `pro`.
+4. Confirm `POST /api/brief` limit increases to 50/day.

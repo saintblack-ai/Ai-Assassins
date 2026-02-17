@@ -98,7 +98,11 @@
           <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Enterprise Upgrade</h2>
           <p class="mt-1 text-sm text-muted">Activate Pro/Elite workflows and enterprise support paths.</p>
         </div>
-        <a href="./pricing.html" class="inline-flex items-center rounded-md border border-neonSoft/60 bg-neonSoft/20 px-4 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Upgrade</a>
+        <div class="flex flex-wrap gap-2">
+          <button id="btnUpgradePro" class="inline-flex items-center rounded-md border border-neonSoft/60 bg-neonSoft/20 px-4 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Upgrade to Pro</button>
+          <button id="btnUpgradeElite" class="inline-flex items-center rounded-md border border-neonSoft/60 bg-neonSoft/20 px-4 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Upgrade to Elite</button>
+          <a href="./pricing.html" class="inline-flex items-center rounded-md border border-neonSoft/60 bg-neonSoft/20 px-4 py-2 text-sm font-medium text-neon transition hover:bg-neonSoft/30">Pricing</a>
+        </div>
       </div>
     </section>
 
@@ -247,6 +251,38 @@
         }
       }
 
+      async function startCheckout(plan) {
+        try {
+          const btn = byId(plan === "pro" ? "btnUpgradePro" : "btnUpgradeElite");
+          if (btn) btn.disabled = true;
+          const deviceId = localStorage.getItem("aa_device_id") || crypto.randomUUID();
+          localStorage.setItem("aa_device_id", deviceId);
+
+          const res = await fetchJson("/api/checkout-session", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              plan,
+              deviceId,
+              successUrl: `${location.origin}${location.pathname}?checkout=success`,
+              cancelUrl: `${location.origin}${location.pathname}?checkout=cancel`
+            })
+          });
+
+          if (res?.url) {
+            location.href = res.url;
+          } else {
+            throw new Error("Checkout URL missing");
+          }
+        } catch (error) {
+          console.error("[Dashboard] checkout error", error);
+          setError(`Unable to start ${plan} checkout.`);
+        } finally {
+          const btn = byId(plan === "pro" ? "btnUpgradePro" : "btnUpgradeElite");
+          if (btn) btn.disabled = false;
+        }
+      }
+
       async function loadCommanderDaily() {
         const btn = byId("btnCommander0700");
         if (btn) btn.disabled = true;
@@ -285,6 +321,14 @@
         const commanderBtn = byId("btnCommander0700");
         if (commanderBtn) {
           commanderBtn.addEventListener("click", loadCommanderDaily);
+        }
+        const btnPro = byId("btnUpgradePro");
+        if (btnPro) {
+          btnPro.addEventListener("click", () => startCheckout("pro"));
+        }
+        const btnElite = byId("btnUpgradeElite");
+        if (btnElite) {
+          btnElite.addEventListener("click", () => startCheckout("elite"));
         }
       }
 
