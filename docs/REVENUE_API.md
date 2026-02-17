@@ -3,16 +3,16 @@
 Base URL:
 - `https://ai-assassins-api.quandrix357.workers.dev`
 
-## `POST /api/checkout-session`
+## `POST /api/checkout`
 Creates a Stripe checkout session.
 
 Request:
 ```json
 {
-  "plan": "pro",
+  "tier": "pro",
   "deviceId": "device-123",
-  "successUrl": "https://saintblack-ai.github.io/Ai-Assassins/dashboard.html?checkout=success",
-  "cancelUrl": "https://saintblack-ai.github.io/Ai-Assassins/dashboard.html?checkout=cancel"
+  "success_url": "https://saintblack-ai.github.io/Ai-Assassins/dashboard.html?checkout=success",
+  "cancel_url": "https://saintblack-ai.github.io/Ai-Assassins/dashboard.html?checkout=cancel"
 }
 ```
 
@@ -24,6 +24,10 @@ Response:
   "url": "https://checkout.stripe.com/..."
 }
 ```
+
+Notes:
+- `/api/checkout-session` is supported as a compatibility alias.
+- Valid tiers: `pro`, `elite`, `enterprise`.
 
 ## `GET /api/products`
 Returns available Stripe-backed plans.
@@ -45,6 +49,12 @@ Handles webhook events:
 - `invoice.payment_succeeded`
 
 Updates user tier in `USER_STATE` based on Stripe metadata/price ID mapping.
+
+## `GET /api/status`
+Returns operational API status and schedule.
+
+## `GET /api/brief/latest`
+Returns latest generated Revenue Fortress daily brief.
 
 ## `GET /api/revenue-summary`
 Aggregates `REVENUE_LOG` for dashboard analytics.

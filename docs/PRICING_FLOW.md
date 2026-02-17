@@ -2,8 +2,8 @@
 
 ## Overview
 1. User opens `/docs/dashboard.html`.
-2. User clicks **Upgrade to Pro** or **Upgrade to Elite**.
-3. Frontend calls `POST /api/checkout-session`.
+2. User clicks **Upgrade to Pro**, **Upgrade to Elite**, or **Enterprise**.
+3. Frontend calls `POST /api/checkout`.
 4. Worker creates Stripe checkout session and returns redirect URL.
 5. User completes payment in Stripe Checkout.
 6. Stripe sends webhook to `POST /api/webhook`.

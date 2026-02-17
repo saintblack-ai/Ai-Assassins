@@ -49,12 +49,12 @@
         <p id="statUsage" class="mt-2 text-2xl font-semibold text-neon">-</p>
       </article>
       <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
-        <p class="text-xs uppercase tracking-[0.18em] text-muted">Revenue Events</p>
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Revenue (USD)</p>
         <p id="statRevenue" class="mt-2 text-2xl font-semibold text-neon">-</p>
       </article>
       <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
-        <p class="text-xs uppercase tracking-[0.18em] text-muted">Leads Captured</p>
-        <p id="statLeads" class="mt-2 text-2xl font-semibold text-neon">-</p>
+        <p class="text-xs uppercase tracking-[0.18em] text-muted">Subscriptions</p>
+        <p id="statSubscriptions" class="mt-2 text-2xl font-semibold text-neon">-</p>
       </article>
     </section>
 
@@ -205,22 +205,23 @@
 
       async function loadStats() {
         try {
-          const [me, metrics] = await Promise.all([
+          const [me, metrics, revenue] = await Promise.all([
             fetchJson("/api/me"),
-            fetchJson("/api/metrics")
+            fetchJson("/api/metrics"),
+            fetchJson("/api/revenue-summary")
           ]);
 
           const tier = String(me?.tier || "free").toUpperCase();
           const usage = me?.usage_today ?? 0;
           const usageLimit = me?.usage_limit === null ? "∞" : (me?.usage_limit ?? "-");
-          const revenueEvents = metrics?.revenue_events_count ?? 0;
-          const leads = metrics?.enterprise_leads_count ?? 0;
+          const totalRevenue = revenue?.total_revenue ?? 0;
+          const totalSubscriptions = revenue?.total_subscriptions ?? 0;
 
           setText("tierBadge", tier);
           setText("statTier", tier);
           setText("statUsage", `${usage} / ${usageLimit}`);
-          setText("statRevenue", String(revenueEvents));
-          setText("statLeads", String(leads));
+          setText("statRevenue", `$${Number(totalRevenue).toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
+          setText("statSubscriptions", String(totalSubscriptions));
           setError("");
         } catch (error) {
           console.error("[Dashboard] stats error", error);
@@ -228,7 +229,7 @@
           setText("statTier", "N/A");
           setText("statUsage", "N/A");
           setText("statRevenue", "N/A");
-          setText("statLeads", "N/A");
+          setText("statSubscriptions", "N/A");
           setError("Unable to load dashboard stats.");
         }
       }
@@ -321,10 +322,10 @@
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              plan,
+              tier: plan,
               deviceId,
-              successUrl: `${location.origin}${location.pathname}?checkout=success`,
-              cancelUrl: `${location.origin}${location.pathname}?checkout=cancel`
+              success_url: `${location.origin}${location.pathname}?checkout=success`,
+              cancel_url: `${location.origin}${location.pathname}?checkout=cancel`
             })
           });
 

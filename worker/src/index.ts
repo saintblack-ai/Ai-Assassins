@@ -891,7 +891,7 @@ export default {
         }
       }
 
-      if (url.pathname === "/daily" && request.method === "GET") {
+      if ((url.pathname === "/daily" || url.pathname === "/api/daily") && request.method === "GET") {
         if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
         const date = todayIsoDateUTC();
         const auth = getAuthContext(request);
@@ -1034,8 +1034,8 @@ export default {
         if (!priceId) {
           return stripeNotConfigured(env);
         }
-        const successUrl = String(body?.successUrl || "");
-        const cancelUrl = String(body?.cancelUrl || "");
+        const successUrl = String(body?.successUrl || body?.success_url || "");
+        const cancelUrl = String(body?.cancelUrl || body?.cancel_url || "");
         if (!successUrl || !cancelUrl) return blocked(400, env);
         const deviceId = String(body?.deviceId || "").trim();
         const userId = String(body?.userId || "").trim();

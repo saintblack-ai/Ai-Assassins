@@ -36,11 +36,11 @@ Expected:
 - HTTP `200`
 - JSON: `{ "success": true, "lead_id": "..." }`
 
-## 4) Test Stripe checkout logic (`POST /api/checkout-session`)
+## 4) Test Stripe checkout logic (`POST /api/checkout`)
 ```bash
-curl -i -X POST https://ai-assassins-api.quandrix357.workers.dev/api/checkout-session \
+curl -i -X POST https://ai-assassins-api.quandrix357.workers.dev/api/checkout \
   -H "content-type: application/json" \
-  -d '{"plan":"pro","deviceId":"smoke-test-device","successUrl":"https://saintblack-ai.github.io/Ai-Assassins/success.html","cancelUrl":"https://saintblack-ai.github.io/Ai-Assassins/pricing.html?canceled=1"}'
+  -d '{"tier":"pro","deviceId":"smoke-test-device","success_url":"https://saintblack-ai.github.io/Ai-Assassins/success.html","cancel_url":"https://saintblack-ai.github.io/Ai-Assassins/pricing.html?canceled=1"}'
 ```
 Expected:
 - If Stripe configured: HTTP `200` + `{ "success": true, "url": "https://checkout.stripe.com/..." }`
@@ -174,7 +174,7 @@ Expected:
   - `risks_alerts`
 
 ## 15) Test free → pro upgrade flow
-1. Call `POST /api/checkout-session` for `plan=pro`.
+1. Call `POST /api/checkout` for `tier=pro`.
 2. Complete checkout in Stripe test mode.
 3. Confirm `GET /api/me` shows tier `pro`.
 4. Confirm `POST /api/brief` limit increases to 50/day.

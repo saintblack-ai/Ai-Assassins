@@ -7,16 +7,19 @@ Set in Worker environment:
 cd /Users/quandrixblackburn/projects/Ai-Assassins/worker
 npx wrangler secret put STRIPE_SECRET_KEY
 npx wrangler secret put STRIPE_WEBHOOK_SECRET
+npx wrangler secret put STRIPE_PUBLIC_KEY
 ```
 
 ## Required vars
 In `worker/wrangler.toml` or dashboard vars:
 - `STRIPE_PRICE_ID_PRO`
 - `STRIPE_PRICE_ID_ELITE`
+- `STRIPE_PRICE_ID_ENTERPRISE`
 
 Fallback vars are supported:
 - `STRIPE_PRICE_PRO`
 - `STRIPE_PRICE_ELITE`
+- `STRIPE_PRICE_ENTERPRISE`
 
 ## Webhook configuration
 Stripe Dashboard:

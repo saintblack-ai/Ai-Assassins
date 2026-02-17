@@ -48,6 +48,7 @@ export async function logRevenueEvent(
       tier,
       event,
       success,
+      status: success ? "success" : "failed",
       amount: amount ?? null,
       timestamp: new Date(ts).toISOString(),
     }),
