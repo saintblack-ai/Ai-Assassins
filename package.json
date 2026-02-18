@@ -4,9 +4,20 @@
   "version": "1.0.0",
   "scripts": {
     "build": "npm --prefix docs run build",
+    "sitrep:dev": "node src/sitrep-server.js",
+    "sitrep:send-test": "node scripts/sitrep-send-test.js",
+    "sitrep:test-auth": "node scripts/test-sitrep-auth.js",
+    "supabase:secrets": "node ./scripts/worker-put-secrets.mjs",
+    "worker:deploy": "node ./scripts/worker-deploy.mjs",
+    "pages:deploy": "node ./scripts/pages-deploy.mjs",
     "mobile:sync": "npm run build && npm --prefix mobile run sync",
     "mobile:prepare:ios": "npm run mobile:sync && npm --prefix mobile run ios:add && npm --prefix mobile run ios:open",
     "mobile:prepare:android": "npm run mobile:sync && npm --prefix mobile run android:add && npm --prefix mobile run android:open",
     "mobile:release:prep": "bash ./scripts/mobile-release.sh"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "sqlite3": "^5.1.7"
   }
 }

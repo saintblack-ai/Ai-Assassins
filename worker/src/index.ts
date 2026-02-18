@@ -24,12 +24,21 @@ import {
 } from "./services/subscription";
 import {
   getUsage,
-  listBriefHistory,
   logDailyBriefSent,
   logRevenueEvent,
   logSystemBriefGenerated,
   saveLead,
 } from "./services/usage";
+import { resolveBriefUserId } from "./identity";
+import {
+  deleteSupabaseBrief,
+  getSupabaseTier,
+  listSupabaseBriefs,
+  saveSupabaseBrief,
+  upsertSupabaseSubscription,
+  upsertSupabaseUser,
+} from "./services/supabase";
+import { buildIntelligencePayload, recommendedActions, scoreIntelligence } from "./services/intel";
 
 type Env = {
   ALLOWED_ORIGINS?: string;
@@ -59,6 +68,9 @@ type Env = {
   STRIPE_PRICE_ELITE?: string;
   STRIPE_PRICE_ENTERPRISE?: string;
   ENTERPRISE_DAILY_LIMIT?: string;
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
 };
 
 type BriefCfg = {
@@ -125,6 +137,13 @@ function requireAdmin(request: Request, env: Env): boolean {
   const token = String(env.ADMIN_TOKEN || "").trim();
   if (!token) return false;
   return auth === `Bearer ${token}`;
+}
+
+function authRejected(auth: { tokenProvided: boolean; invalidToken: boolean }, env: Env): Response | null {
+  if (auth.tokenProvided && auth.invalidToken) {
+    return json({ success: false, error: "invalid token" }, 401, env);
+  }
+  return null;
 }
 
 function defaultBriefCfg(env: Env, userId: string): BriefCfg {
@@ -894,9 +913,13 @@ export default {
       if ((url.pathname === "/daily" || url.pathname === "/api/daily") && request.method === "GET") {
         if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
         const date = todayIsoDateUTC();
-        const auth = getAuthContext(request);
-        const tier = auth.userId ? await getTier(env, auth.userId) : "free";
-        const isPremiumLocked = !(tier === "pro" || tier === "elite" || tier === "enterprise");
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
+        const tier = auth.userId
+          ? ((await getSupabaseTier(env, auth.userId)) || await getTier(env, auth.userId))
+          : "free";
+        const isPremiumLocked = !(tier === "premium" || tier === "pro" || tier === "elite" || tier === "enterprise");
         const result = await ensureCommanderDaily(env, date, isPremiumLocked);
         const responseDaily: CommanderDaily = isPremiumLocked
           ? {
@@ -958,9 +981,11 @@ export default {
       }
 
       if (url.pathname === "/api/user/status" && request.method === "GET") {
-        const auth = getAuthContext(request);
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
         if (!auth.userId) return blocked(401, env);
-        const tier = await getTier(env, auth.userId);
+        const tier = (await getSupabaseTier(env, auth.userId)) || await getTier(env, auth.userId);
         const usageToday = await getUsage(env, auth.userId);
         return json(
           {
@@ -976,12 +1001,16 @@ export default {
       }
 
       if (url.pathname === "/api/me" && request.method === "GET") {
-        const auth = getAuthContext(request);
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
         if (!auth.userId) {
           return json(
             {
               success: true,
               user_id: null,
+              email: null,
+              created_at: null,
               tier: "free",
               usage_today: 0,
               usage_limit: tierLimit("free", env),
@@ -990,12 +1019,19 @@ export default {
             env
           );
         }
-        const tier = await getTier(env, auth.userId);
+        await upsertSupabaseUser(env, {
+          id: auth.userId,
+          email: auth.email,
+          created_at: auth.createdAt,
+        });
+        const tier = (await getSupabaseTier(env, auth.userId)) || await getTier(env, auth.userId);
         const usageToday = await getUsage(env, auth.userId);
         return json(
           {
             success: true,
             user_id: auth.userId,
+            email: auth.email,
+            created_at: auth.createdAt,
             tier,
             usage_today: usageToday,
             usage_limit: tierLimit(tier as Tier, env),
@@ -1005,20 +1041,125 @@ export default {
         );
       }
 
-      if ((url.pathname === "/api/briefs" || url.pathname === "/briefs") && request.method === "GET") {
-        const auth = getAuthContext(request);
+      if (url.pathname === "/api/subscription" && request.method === "PUT") {
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
         if (!auth.userId) return blocked(401, env);
-        const tier = await getTier(env, auth.userId);
-        const items = await listBriefHistory(env, auth.userId, 20);
+        const body = await request.json().catch(() => ({} as any));
+        const plan = String(body?.plan || "").toLowerCase();
+        if (!["free", "premium", "pro", "elite", "enterprise"].includes(plan)) {
+          return blocked(400, env);
+        }
+        const ok = await upsertSupabaseSubscription(env, auth.userId, plan as Tier, "active");
+        if (!ok) return blocked(503, env);
+        await setTier(env, auth.userId, plan as Tier);
+        return json({ success: true, user_id: auth.userId, tier: plan }, 200, env);
+      }
+
+      if ((url.pathname === "/api/briefs" || url.pathname === "/briefs") && request.method === "GET") {
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
+        const isAuthenticated = Boolean(auth.validated && auth.userId && !auth.userId.startsWith("device:"));
+        if (!isAuthenticated) return blocked(401, env);
+        const tier = (await getSupabaseTier(env, auth.userId)) || await getTier(env, auth.userId);
+        const items = await listSupabaseBriefs(env, auth.userId, 30);
         await logRevenueEvent(env, auth.userId, tier, "brief_history_read", true, auth.email);
         return json({ success: true, items }, 200, env);
       }
 
+      if (url.pathname.startsWith("/api/briefs/") && request.method === "DELETE") {
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
+        const isAuthenticated = Boolean(auth.validated && auth.userId && !auth.userId.startsWith("device:"));
+        if (!isAuthenticated) return blocked(401, env);
+        const briefId = url.pathname.slice("/api/briefs/".length);
+        if (!briefId) return blocked(400, env);
+        const deleted = await deleteSupabaseBrief(env, auth.userId, briefId);
+        if (!deleted) return blocked(404, env);
+        return json({ success: true, deleted: briefId }, 200, env);
+      }
+
       if (url.pathname === "/api/brief" && request.method === "POST") {
-        const auth = getAuthContext(request);
-        if (!auth.userId) return blocked(401, env);
-        const tier = await getTier(env, auth.userId);
-        return await handleBrief(request, env, auth.userId, tier as Tier);
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
+        const isAuthenticated = Boolean(auth.validated && auth.userId && !auth.userId.startsWith("device:"));
+
+        const body = await request.clone().json().catch(() => ({} as any));
+        const userId = resolveBriefUserId({
+          authUserId: auth.userId,
+          deviceHeader: request.headers.get("X-Device-Id"),
+          bodyDeviceId: body?.deviceId,
+        });
+        if (!userId) return blocked(401, env);
+
+        if (!env.OPENAI_API_KEY) {
+          return json(
+            {
+              success: false,
+              error: "OPENAI_API_KEY is not configured on the worker",
+            },
+            503,
+            env
+          );
+        }
+
+        if (isAuthenticated && auth.userId) {
+          await upsertSupabaseUser(env, {
+            id: auth.userId,
+            email: auth.email,
+            created_at: auth.createdAt,
+          });
+        }
+
+        const tier = (isAuthenticated
+          ? ((await getSupabaseTier(env, userId)) || await getTier(env, userId))
+          : "free") as Tier;
+        const response = await handleBrief(request, env, userId, tier as Tier);
+
+        if (response.ok && isAuthenticated && auth.userId) {
+          const payload = await response.clone().json().catch(() => ({} as any));
+          const location = body?.lat && body?.lon ? `${body.lat},${body.lon}` : null;
+          await saveSupabaseBrief(env, {
+            user_id: userId,
+            brief_json: payload,
+            location,
+            focus: body?.focus || null,
+            tone: body?.tone || null,
+          });
+        }
+        return response;
+      }
+
+      if (url.pathname === "/api/brief/auto" && request.method === "POST") {
+        if (!env.OPENAI_API_KEY) {
+          return json({ success: false, error: "OPENAI_API_KEY is not configured on the worker" }, 503, env);
+        }
+        const userId = "system:daily";
+        const intel = await buildIntelligencePayload({});
+        const scores = scoreIntelligence(intel);
+        const out = {
+          narrative: "Automated daily intelligence rollup generated by scheduler.",
+          risk_score: scores.risk_score,
+          volatility: scores.volatility,
+          confidence: scores.confidence,
+          priority: scores.priority,
+          recommended_actions: recommendedActions(scores),
+          intelligence_payload: intel,
+          timestamp: new Date().toISOString(),
+        };
+        await saveSupabaseBrief(env, {
+          user_id: userId,
+          brief_json: out,
+          location: null,
+          focus: "automated-daily",
+          tone: "strategic",
+        });
+        await logRevenueEvent(env, userId, "free", "auto_brief_generated", true);
+        return json({ success: true, ...out }, 200, env);
       }
 
       if ((url.pathname === "/api/checkout" || url.pathname === "/api/checkout-session") && request.method === "POST") {
@@ -1109,7 +1250,9 @@ export default {
         const org = String(body?.org || "").trim();
         const message = String(body?.message || "").trim();
         if (!name || !email || !org || !message) return blocked(400, env);
-        const auth = getAuthContext(request);
+        const auth = await getAuthContext(request, env);
+        const rejected = authRejected(auth, env);
+        if (rejected) return rejected;
         const id = await saveLead(env, { name, email, org, message, userId: auth.userId });
         await logRevenueEvent(env, auth.userId || email, "enterprise", "enterprise_lead_created", true, email);
         return json({ success: true, lead_id: id || null }, 200, env);
@@ -1176,6 +1319,28 @@ export default {
           success: true,
         });
       }
+
+      // Automated daily intelligence generation and storage.
+      const intel = await buildIntelligencePayload({});
+      const scores = scoreIntelligence(intel);
+      const autoBrief = {
+        narrative: "Scheduled daily intelligence brief generated automatically.",
+        risk_score: scores.risk_score,
+        volatility: scores.volatility,
+        confidence: scores.confidence,
+        priority: scores.priority,
+        recommended_actions: recommendedActions(scores),
+        intelligence_payload: intel,
+        timestamp: new Date().toISOString(),
+      };
+      await saveSupabaseBrief(env, {
+        user_id: "system:daily",
+        brief_json: autoBrief,
+        location: null,
+        focus: "automated-daily",
+        tone: "strategic",
+      });
+      await logRevenueEvent(env, "system:daily", "free", "scheduled_auto_brief_generated", true);
     } catch (error) {
       console.error("scheduled brief job failed", error);
     }

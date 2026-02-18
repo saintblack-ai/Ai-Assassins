@@ -1,25 +1,21 @@
-export type Tier = "free" | "pro" | "elite" | "enterprise";
+export type Tier = "free" | "pro" | "premium" | "elite" | "enterprise";
 
 type Env = {
   USER_STATE?: KVNamespace;
   REVENUECAT_WEBHOOK_SECRET?: string;
-  ENTERPRISE_DAILY_LIMIT?: string;
 };
 
 const TIER_LIMITS: Record<Tier, number | null> = {
-  free: 5,
-  pro: 50,
-  elite: null,
+  free: 1,
+  pro: 25,
+  premium: 10,
+  elite: 100,
   enterprise: null,
 };
 
 export function tierLimit(tier: Tier, env?: Env): number | null {
-  if (tier === "enterprise") {
-    const configured = Number(env?.ENTERPRISE_DAILY_LIMIT || "");
-    if (Number.isFinite(configured) && configured > 0) return configured;
-    return null;
-  }
-  return TIER_LIMITS[tier] ?? 5;
+  if (tier === "enterprise") return null;
+  return TIER_LIMITS[tier] ?? 1;
 }
 
 export function isUsageAllowed(tier: Tier, usedToday: number, env?: Env): boolean {
@@ -31,7 +27,7 @@ export function isUsageAllowed(tier: Tier, usedToday: number, env?: Env): boolea
 export async function getTier(env: Env, userId: string): Promise<Tier> {
   if (!env.USER_STATE) return "free";
   const saved = await env.USER_STATE.get(`user:${userId}:tier`);
-  if (saved === "pro" || saved === "elite" || saved === "enterprise") return saved;
+  if (saved === "pro" || saved === "premium" || saved === "elite" || saved === "enterprise") return saved;
   return "free";
 }
 

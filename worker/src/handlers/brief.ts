@@ -1,5 +1,6 @@
 import { isUsageAllowed, tierLimit, type Tier } from "../services/subscription";
 import { getUsage, incrementUsage, logRevenueEvent, saveBriefHistory } from "../services/usage";
+import { buildIntelligencePayload, recommendedActions, scoreIntelligence } from "../services/intel";
 
 type Env = {
   OPENAI_API_KEY?: string;
@@ -41,6 +42,9 @@ export async function handleBrief(request: Request, env: Env, userId: string, ti
 }
 
 async function generateBrief(apiKey: string, model: string, input: any): Promise<any> {
+  const intel = await buildIntelligencePayload(input);
+  const scores = scoreIntelligence(intel);
+  const actions = recommendedActions(scores);
   const today = new Date().toISOString().slice(0, 10);
   const payload = {
     model,
@@ -50,7 +54,7 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
         content: [
           {
             type: "input_text",
-            text: "Return strict JSON only. Build concise intelligence brief sections."
+            text: "You are a senior intelligence analyst. Return strict JSON only with clear strategic narrative and actionable recommendations."
           }
         ]
       },
@@ -59,7 +63,14 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
         content: [
           {
             type: "input_text",
-            text: `Date: ${today}\nFocus: ${input?.focus || "geopolitics, markets, operations"}\nTone: ${input?.tone || "strategic"}`
+            text: [
+              `Date: ${today}`,
+              `Focus: ${input?.focus || "geopolitics, markets, operations"}`,
+              `Tone: ${input?.tone || "strategic"}`,
+              `Intelligence payload: ${JSON.stringify(intel)}`,
+              `Pre-scored metrics: ${JSON.stringify(scores)}`,
+              `Recommended actions seed: ${JSON.stringify(actions)}`
+            ].join("\n")
           }
         ]
       }
@@ -80,7 +91,13 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
             mission_priorities: { type: "array", items: { type: "string" } },
             truthwave: { type: "object" },
             top_tasks: { type: "array", items: { type: "string" } },
-            command_note: { type: "string" }
+            command_note: { type: "string" },
+            narrative: { type: "string" },
+            risk_score: { type: "number" },
+            volatility: { type: "number" },
+            confidence: { type: "number" },
+            priority: { type: "string" },
+            recommended_actions: { type: "array", items: { type: "string" } }
           },
           required: [
             "overnight_overview",
@@ -91,7 +108,13 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
             "mission_priorities",
             "truthwave",
             "top_tasks",
-            "command_note"
+            "command_note",
+            "narrative",
+            "risk_score",
+            "volatility",
+            "confidence",
+            "priority",
+            "recommended_actions"
           ]
         },
         strict: true
@@ -110,7 +133,17 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
   if (!r.ok) throw new Error("OpenAI request failed");
   const data: any = await r.json();
   const output = extractOutputText(data);
-  return JSON.parse(output);
+  const parsed = JSON.parse(output);
+  return {
+    ...parsed,
+    risk_score: Number(parsed?.risk_score ?? scores.risk_score),
+    volatility: Number(parsed?.volatility ?? scores.volatility),
+    confidence: Number(parsed?.confidence ?? scores.confidence),
+    priority: String(parsed?.priority || scores.priority),
+    recommended_actions: Array.isArray(parsed?.recommended_actions) ? parsed.recommended_actions : actions,
+    intelligence_payload: intel,
+    cyber_alert_level: scores.cyber_alert_level,
+  };
 }
 
 function extractOutputText(response: any): string {

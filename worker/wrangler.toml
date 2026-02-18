@@ -1,12 +1,14 @@
-# Worker identity + entrypoint
-name = "ai-assassins-api"
+name = "ai-assassins-worker"
+compatibility_date = "2026-02-17"
 main = "src/index.ts"
-compatibility_date = "2026-02-15"
 
 # Deploy to Cloudflare workers.dev for now (no custom domain route binding)
 workers_dev = true
 # route = "https://api.aiassassins.com/*" # Disabled for workers.dev-only deployment
 # zone_id = "YOUR_ZONE_ID"              # Enable only when custom DNS zone is configured
+
+[assets]
+directory = "../docs"
 
 # Non-secret runtime variables (safe to commit)
 [vars]
@@ -15,6 +17,8 @@ FREE_BRIEFS_PER_DAY = "1"
 REQUIRE_AUTH = "true"
 ALLOWED_ORIGINS = "https://saintblack-ai.github.io"
 PUBLIC_APP_URL = "https://saintblack-ai.github.io/Ai-Assassins"
+SUPABASE_URL = ""
+SUPABASE_ANON_KEY = ""
 STRIPE_PRICE_ID = ""
 STRIPE_PRICE_ID_PRO = ""
 STRIPE_PRICE_ID_ELITE = ""

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ARCHAIOS SITREP Dashboard</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; margin: 24px; background: #0b0f13; color: #e7eef7; }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card { border: 1px solid #2a3c52; border-radius: 12px; padding: 12px; background: #111925; }
+    pre { white-space: pre-wrap; word-break: break-word; }
+    .muted { color: #9cb0c7; }
+    button { padding: 10px 12px; background: #122235; color: #dce7f7; border: 1px solid #35597f; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>ARCHAIOS SITREP Dashboard</h1>
+    <p class="muted">Telemetry insights for AI Assassins + Archaios Core.</p>
+    <div style="margin-bottom:12px;">
+      <label for="apiBase">API Base:</label>
+      <input id="apiBase" style="width:460px;max-width:100%;" value="http://localhost:8788">
+      <button id="btnRefresh">Refresh</button>
+    </div>
+    <div class="grid">
+      <div class="card"><h3>Event Counts (24h)</h3><pre id="counts">Loading…</pre></div>
+      <div class="card"><h3>Deploy Health</h3><pre id="deployHealth">Loading…</pre></div>
+      <div class="card"><h3>Anomaly Flags</h3><pre id="flags">Loading…</pre></div>
+      <div class="card"><h3>Latest Errors</h3><pre id="errors">Loading…</pre></div>
+    </div>
+  </div>
+  <script>
+    async function loadInsights() {
+      const base = document.getElementById("apiBase").value.replace(/\/+$/, "");
+      const r = await fetch(`${base}/api/sitrep/insights`, { cache: "no-store" });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || "insights_failed");
+      document.getElementById("counts").textContent = JSON.stringify(data.last_24h_event_counts_by_type, null, 2);
+      document.getElementById("deployHealth").textContent = JSON.stringify(data.deploy_health, null, 2);
+      document.getElementById("flags").textContent = JSON.stringify(data.anomaly_flags, null, 2);
+      document.getElementById("errors").textContent = JSON.stringify(data.latest_errors, null, 2);
+    }
+
+    document.getElementById("btnRefresh").addEventListener("click", async () => {
+      try { await loadInsights(); } catch (err) { alert(err.message); }
+    });
+    loadInsights().catch((err) => {
+      document.getElementById("counts").textContent = `Error: ${err.message}`;
+      document.getElementById("deployHealth").textContent = "N/A";
+      document.getElementById("flags").textContent = "N/A";
+      document.getElementById("errors").textContent = "N/A";
+    });
+  </script>
+</body>
+</html>

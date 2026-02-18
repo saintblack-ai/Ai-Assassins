@@ -1,7 +1,10 @@
 const DEFAULT_API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
 const API_BASE_STORAGE_KEY = "AI_ASSASSINS_API_BASE";
-const SUPABASE_URL = window.AIA_SUPABASE_URL || "";
-const SUPABASE_ANON_KEY = window.AIA_SUPABASE_ANON_KEY || "";
+const DEVICE_ID_KEY = "AIA_DEVICE_ID";
+const SUPABASE_URL_KEY = "AIA_SUPABASE_URL";
+const SUPABASE_ANON_KEY_KEY = "AIA_SUPABASE_ANON_KEY";
+const DEFAULT_REFRESH_MINUTES = 10;
+const SETTINGS_KEY = "AIA_DEFAULT_SETTINGS";
 
 const IDS = {
   btnGenerate: "btnGenerate",
@@ -33,6 +36,7 @@ const IDS = {
   btnLogin: "btnLogin",
   btnLogout: "btnLogout",
   btnRestorePurchases: "btnRestorePurchases",
+  btnExportPdf: "btnExportPdf",
   btnUpgrade: "btnUpgrade",
   btnContactEnterprise: "btnContactEnterprise",
   apiBaseInput: "apiBaseInput",
@@ -40,8 +44,26 @@ const IDS = {
   btnResetApiBase: "btnResetApiBase",
   apiBaseStatus: "apiBaseStatus",
   subscriptionBadge: "subscriptionBadge",
+  userEmailBadge: "userEmailBadge",
   billingStatus: "billingStatus",
   tierDetails: "tierDetails"
+  ,
+  tabBriefBtn: "tabBriefBtn",
+  tabHistoryBtn: "tabHistoryBtn",
+  tabSettingsBtn: "tabSettingsBtn",
+  tabBrief: "tabBrief",
+  tabHistory: "tabHistory",
+  tabSettings: "tabSettings",
+  defaultLatInput: "defaultLatInput",
+  defaultLonInput: "defaultLonInput",
+  defaultFocusInput: "defaultFocusInput",
+  defaultToneInput: "defaultToneInput",
+  refreshMinutesInput: "refreshMinutesInput",
+  btnSaveDefaults: "btnSaveDefaults",
+  btnApplyDefaults: "btnApplyDefaults",
+  supabaseUrlInput: "supabaseUrlInput",
+  supabaseAnonInput: "supabaseAnonInput",
+  btnSaveSupabase: "btnSaveSupabase"
 };
 
 const missingWarned = new Set();
@@ -52,6 +74,21 @@ let currentTier = "free";
 let currentUsage = 0;
 let knownBriefs = [];
 let apiBase = "";
+let supabaseUrl = "";
+let supabaseAnonKey = "";
+let refreshMinutes = DEFAULT_REFRESH_MINUTES;
+
+function getOrCreateDeviceId() {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    const generated = (window.crypto?.randomUUID
+      ? window.crypto.randomUUID()
+      : `dev_${Date.now()}_${Math.random()}`);
+    id = String(generated).replace(/[^a-zA-Z0-9_-]/g, "");
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
 
 function byId(id) {
   const el = document.getElementById(id);
@@ -73,6 +110,18 @@ function sanitizeApiBase(value) {
   } catch {
     return "";
   }
+}
+
+function parseNumber(input, fallback) {
+  const n = Number(input);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function getSupabaseConfig() {
+  return {
+    url: (window.SUPABASE_URL || localStorage.getItem(SUPABASE_URL_KEY) || "").trim(),
+    anonKey: (window.SUPABASE_ANON_KEY || localStorage.getItem(SUPABASE_ANON_KEY_KEY) || "").trim(),
+  };
 }
 
 function resolveApiBase() {
@@ -145,8 +194,15 @@ function setAutoRefreshStatus(enabled) {
     : "Auto-refresh disabled";
 }
 
+function scheduleAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(generateBrief, refreshMinutes * 60 * 1000);
+  setAutoRefreshStatus(true);
+}
+
 function setSubscriptionBadge(tier, usage, quota) {
   const badge = byId(IDS.subscriptionBadge);
+  const emailBadge = byId(IDS.userEmailBadge);
   const status = byId(IDS.billingStatus);
   const details = byId(IDS.tierDetails);
   const upgradeBtn = byId(IDS.btnUpgrade);
@@ -154,8 +210,9 @@ function setSubscriptionBadge(tier, usage, quota) {
   const label =
     tier === "enterprise" ? "Enterprise" :
     tier === "elite" ? "Elite" :
-    tier === "pro" ? "Pro" : "Free";
+    tier === "pro" || tier === "premium" ? "Premium" : "Free";
   if (badge) badge.textContent = `Tier: ${label}`;
+  if (emailBadge) emailBadge.textContent = authSession?.user?.email ? authSession.user.email : "Guest mode";
   if (status) status.textContent = `Billing status: ${tier === "free" ? "Free" : "Active"}`;
   if (details) {
     details.textContent =
@@ -165,7 +222,7 @@ function setSubscriptionBadge(tier, usage, quota) {
           ? "Elite tier active: advanced exports and expanded strategic brief depth enabled."
           : tier === "pro"
             ? "Pro tier active: higher daily limits, history, and export features unlocked."
-            : `Free tier usage: ${usage}/${quota} briefs today. Upgrade for higher limits.`;
+            : `Free tier usage: ${usage}/${quota} briefs today. Upgrade for more capacity.`;
   }
 
   if (upgradeBtn) {
@@ -318,21 +375,98 @@ function getInputs() {
   };
 }
 
+function loadDefaults() {
+  const raw = localStorage.getItem(SETTINGS_KEY);
+  if (!raw) return;
+  try {
+    const cfg = JSON.parse(raw);
+    if (cfg.lat) byId(IDS.defaultLatInput).value = cfg.lat;
+    if (cfg.lon) byId(IDS.defaultLonInput).value = cfg.lon;
+    if (cfg.focus) byId(IDS.defaultFocusInput).value = cfg.focus;
+    if (cfg.tone) byId(IDS.defaultToneInput).value = cfg.tone;
+    refreshMinutes = parseNumber(cfg.refreshMinutes, DEFAULT_REFRESH_MINUTES);
+    if (byId(IDS.refreshMinutesInput)) byId(IDS.refreshMinutesInput).value = String(refreshMinutes);
+  } catch {
+    // ignore
+  }
+}
+
+function saveDefaults() {
+  const cfg = {
+    lat: byId(IDS.defaultLatInput)?.value?.trim() || "",
+    lon: byId(IDS.defaultLonInput)?.value?.trim() || "",
+    focus: byId(IDS.defaultFocusInput)?.value?.trim() || "",
+    tone: byId(IDS.defaultToneInput)?.value?.trim() || "",
+    refreshMinutes: parseNumber(byId(IDS.refreshMinutesInput)?.value, DEFAULT_REFRESH_MINUTES),
+  };
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(cfg));
+  refreshMinutes = cfg.refreshMinutes;
+  scheduleAutoRefresh();
+  toast("Defaults saved");
+}
+
+function applyDefaultsToInputs() {
+  const lat = byId(IDS.latInput);
+  const lon = byId(IDS.lonInput);
+  const focus = byId(IDS.focusInput);
+  const tone = byId(IDS.toneInput);
+  if (lat) lat.value = byId(IDS.defaultLatInput)?.value?.trim() || "";
+  if (lon) lon.value = byId(IDS.defaultLonInput)?.value?.trim() || "";
+  if (focus) focus.value = byId(IDS.defaultFocusInput)?.value?.trim() || "";
+  if (tone) tone.value = byId(IDS.defaultToneInput)?.value?.trim() || "";
+  toast("Defaults applied");
+}
+
+function saveSupabaseConfig() {
+  const url = byId(IDS.supabaseUrlInput)?.value?.trim() || "";
+  const anon = byId(IDS.supabaseAnonInput)?.value?.trim() || "";
+  if (url) localStorage.setItem(SUPABASE_URL_KEY, url);
+  if (anon) localStorage.setItem(SUPABASE_ANON_KEY_KEY, anon);
+  supabaseUrl = url;
+  supabaseAnonKey = anon;
+  toast("Supabase config saved. Reload page to reinitialize auth.");
+}
+
+function switchTab(tabName) {
+  const tabs = {
+    brief: byId(IDS.tabBrief),
+    history: byId(IDS.tabHistory),
+    settings: byId(IDS.tabSettings),
+  };
+  Object.entries(tabs).forEach(([k, node]) => {
+    if (!node) return;
+    node.style.display = k === tabName ? "" : "none";
+  });
+}
+
 async function requestBrief({ lat, lon, focus, tone, icsUrl }) {
   const base = getApiBase().replace(/\/$/, "");
   const postUrl = `${base}/api/brief`;
+  const deviceId = getOrCreateDeviceId();
 
-  const res = await fetchWithTimeout(postUrl, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      Accept: "application/json",
-      ...authHeaders()
+  const res = await fetchWithTimeout(
+    postUrl,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        Accept: "application/json",
+        "X-Device-Id": deviceId,
+        ...authHeaders()
+      },
+      cache: "no-store",
+      mode: "cors",
+      body: JSON.stringify({
+        deviceId,
+        lat: lat || null,
+        lon: lon || null,
+        focus: focus || null,
+        tone: tone || null,
+        icsUrl: icsUrl || null
+      })
     },
-    cache: "no-store",
-    mode: "cors",
-    body: JSON.stringify({ lat: lat || null, lon: lon || null, focus: focus || null, tone: tone || null, icsUrl: icsUrl || null })
-  }, 12000);
+    12000
+  );
 
   const txt = await res.text();
   const parsed = safeJsonParse(txt);
@@ -345,12 +479,12 @@ async function loadBriefHistory() {
   const list = byId("pastBriefsList");
   if (!list) return;
   if (!authSession?.access_token) {
-    list.innerHTML = '<li class="muted">Login required</li>';
+    list.innerHTML = '<li class="muted">Sign in to sync cloud history</li>';
     return;
   }
 
   try {
-    const res = await fetchWithTimeout(`${getApiBase()}/briefs`, {
+    const res = await fetchWithTimeout(`${getApiBase()}/api/briefs`, {
       headers: { Accept: "application/json", ...authHeaders() },
       cache: "no-store",
       mode: "cors"
@@ -377,6 +511,12 @@ function renderPastBriefs(items) {
   list.innerHTML = "";
   for (const item of items.slice(0, 20)) {
     const li = document.createElement("li");
+    const row = document.createElement("div");
+    row.style.display = "grid";
+    row.style.gridTemplateColumns = "1fr auto auto auto auto";
+    row.style.gap = "6px";
+    row.style.alignItems = "center";
+
     const btn = document.createElement("button");
     const ts = item?.timestamp ? new Date(item.timestamp).toLocaleString() : "Unknown time";
     btn.type = "button";
@@ -387,7 +527,57 @@ function renderPastBriefs(items) {
     btn.addEventListener("click", async () => {
       await loadBriefById(item.id);
     });
-    li.appendChild(btn);
+    const viewBtn = document.createElement("button");
+    viewBtn.type = "button";
+    viewBtn.textContent = "View";
+    viewBtn.onclick = () => loadBriefById(item.id);
+
+    const jsonBtn = document.createElement("button");
+    jsonBtn.type = "button";
+    jsonBtn.textContent = "JSON";
+    jsonBtn.onclick = () => {
+      const blob = new Blob([JSON.stringify(item?.data || {}, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `brief-${item.id}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    };
+
+    const pdfBtn = document.createElement("button");
+    pdfBtn.type = "button";
+    pdfBtn.textContent = "PDF";
+    pdfBtn.onclick = async () => {
+      await loadBriefById(item.id);
+      await exportPdf();
+    };
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.textContent = "Delete";
+    deleteBtn.onclick = async () => {
+      try {
+        const res = await fetchWithTimeout(`${getApiBase()}/api/briefs/${item.id}`, {
+          method: "DELETE",
+          headers: { Accept: "application/json", ...authHeaders() },
+          cache: "no-store",
+          mode: "cors"
+        }, 12000);
+        if (!res.ok) throw new Error("Delete failed");
+        toast("Brief deleted");
+        await loadBriefHistory();
+      } catch (error) {
+        setError(error?.message || "Failed deleting brief");
+      }
+    };
+
+    row.appendChild(btn);
+    row.appendChild(viewBtn);
+    row.appendChild(jsonBtn);
+    row.appendChild(pdfBtn);
+    row.appendChild(deleteBtn);
+    li.appendChild(row);
     list.appendChild(li);
   }
 }
@@ -397,18 +587,11 @@ async function loadBriefById(id) {
   setError("");
   setLoadingState(true, "Loading saved brief...");
   try {
-    const url = new URL(`${getApiBase()}/brief`);
-    url.searchParams.set("id", id);
-    const res = await fetchWithTimeout(url.toString(), {
-      headers: { Accept: "application/json", ...authHeaders() },
-      cache: "no-store",
-      mode: "cors"
-    }, 12000);
-    const text = await res.text();
-    const parsed = safeJsonParse(text);
-    if (!parsed.ok) throw new Error(parsed.error);
-    if (!res.ok) throw new Error(`Failed loading brief (${res.status})`);
-    renderBrief(parsed.data || {});
+    const found = knownBriefs.find((item) => String(item.id) === String(id));
+    if (!found) {
+      throw new Error("Brief not found in local history list");
+    }
+    renderBrief(found.data || {});
     toast("Loaded saved brief");
   } catch (error) {
     console.error("[AI-Assassins] Failed loading brief by id", error);
@@ -420,7 +603,7 @@ async function loadBriefById(id) {
 
 async function refreshAccountStatus() {
   if (!authSession?.user?.id) {
-    setSubscriptionBadge("free", 0, 5);
+    setSubscriptionBadge("free", 0, 1);
     return;
   }
   try {
@@ -435,20 +618,22 @@ async function refreshAccountStatus() {
     const data = parsed.data || {};
     currentTier = data.tier || "free";
     currentUsage = Number(data.usage_today || 0);
-    const quota = data.usage_limit ?? data.free_quota_per_day ?? 5;
+    const quota = data.usage_limit ?? data.free_quota_per_day ?? 1;
     setSubscriptionBadge(currentTier, currentUsage, quota);
+    const details = byId(IDS.tierDetails);
+    if (details && data.user_id) {
+      details.textContent += ` | User: ${data.user_id}${data.email ? ` (${data.email})` : ""}`;
+    }
+    const emailBadge = byId(IDS.userEmailBadge);
+    if (emailBadge) {
+      emailBadge.textContent = data.email || authSession?.user?.email || "Guest mode";
+    }
   } catch (error) {
     console.warn("[AI-Assassins] Failed to refresh account status", error);
   }
 }
 
 async function generateBrief() {
-  if (!authSession?.access_token) {
-    setError("Login required. Tap Login to continue.");
-    byId(IDS.loginDialog)?.showModal();
-    return;
-  }
-
   setError("");
   setLoadingState(true);
   try {
@@ -480,16 +665,16 @@ async function generateBrief() {
 }
 
 async function initSupabaseAuth() {
-  if (!window.supabase || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn("[AI-Assassins] Supabase not configured. Set window.AIA_SUPABASE_URL and window.AIA_SUPABASE_ANON_KEY.");
+  supabaseClient = window.AIASupabase?.getClient ? window.AIASupabase.getClient() : null;
+  if (!supabaseClient) {
+    console.warn("[AI-Assassins] Supabase not configured. Device mode remains active.");
+    const status = byId(IDS.billingStatus);
+    if (status) status.textContent = "Supabase not configured. Running in free device mode.";
     return;
   }
+  authSession = window.AIASupabase?.getSession ? await window.AIASupabase.getSession() : null;
 
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-  const { data } = await supabaseClient.auth.getSession();
-  authSession = data?.session || null;
-
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
+  window.AIASupabase.onAuthStateChange((session) => {
     authSession = session;
     if (session) {
       toast("Logged in");
@@ -497,8 +682,8 @@ async function initSupabaseAuth() {
       loadBriefHistory();
       generateBrief();
     } else {
-      setSubscriptionBadge("free", 0, 5);
-      setError("Login required. Tap Login to continue.");
+      setSubscriptionBadge("free", 0, 1);
+      setError("");
       renderPastBriefs([]);
     }
   });
@@ -507,7 +692,7 @@ async function initSupabaseAuth() {
 async function handleLoginSubmit(event) {
   event.preventDefault();
   if (!supabaseClient) {
-    setError("Supabase is not configured in this environment.");
+    setError("Supabase is not configured. Continue in free device mode or set docs/config.js.");
     return;
   }
 
@@ -518,10 +703,12 @@ async function handleLoginSubmit(event) {
     return;
   }
 
-  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  const loginResult = await window.AIASupabase.signIn(email, password);
+  const error = loginResult?.error;
   if (error) {
-    const { error: signUpError } = await supabaseClient.auth.signUp({ email, password });
-    if (signUpError) {
+    const signUpResult = await window.AIASupabase.signUp(email, password);
+    if (signUpResult?.error) {
+      const signUpError = signUpResult.error;
       setError(signUpError.message || error.message || "Login failed.");
       return;
     }
@@ -610,13 +797,13 @@ function wireUp() {
 
   byId(IDS.btnLogout)?.addEventListener("click", async () => {
     if (!supabaseClient) {
-      setError("Auth provider not configured.");
+      setError("Auth provider not configured. You are in device mode.");
       return;
     }
     try {
-      await supabaseClient.auth.signOut();
+      await window.AIASupabase.signOut();
       authSession = null;
-      setSubscriptionBadge("free", 0, 5);
+      setSubscriptionBadge("free", 0, 1);
       setError("Logged out.");
     } catch (error) {
       setError(error?.message || "Logout failed.");
@@ -636,7 +823,9 @@ function wireUp() {
 
   byId(IDS.btnExportPdf)?.addEventListener("click", async () => {
     try {
-      if (currentTier !== "pro") throw new Error("PDF export is available for Pro tier.");
+      if (!["premium", "pro", "elite", "enterprise"].includes(currentTier)) {
+        throw new Error("PDF export is available for Premium/Pro tiers.");
+      }
       await exportPdf();
       toast("PDF exported");
     } catch (error) {
@@ -654,19 +843,33 @@ function wireUp() {
     resetApiBaseOverride();
   });
 
+  byId(IDS.tabBriefBtn)?.addEventListener("click", () => switchTab("brief"));
+  byId(IDS.tabHistoryBtn)?.addEventListener("click", () => switchTab("history"));
+  byId(IDS.tabSettingsBtn)?.addEventListener("click", () => switchTab("settings"));
+  byId(IDS.btnSaveDefaults)?.addEventListener("click", saveDefaults);
+  byId(IDS.btnApplyDefaults)?.addEventListener("click", applyDefaultsToInputs);
+  byId(IDS.btnSaveSupabase)?.addEventListener("click", saveSupabaseConfig);
+
   setAutoRefreshStatus(Boolean(autoRefreshTimer));
   refreshApiBaseUi();
+  loadDefaults();
+  applyDefaultsToInputs();
+  const supaUrlInput = byId(IDS.supabaseUrlInput);
+  const supaAnonInput = byId(IDS.supabaseAnonInput);
+  if (supaUrlInput) supaUrlInput.value = supabaseUrl;
+  if (supaAnonInput) supaAnonInput.value = supabaseAnonKey;
+  switchTab("brief");
 }
 
 window.addEventListener("DOMContentLoaded", async () => {
   apiBase = resolveApiBase();
+  const cfg = getSupabaseConfig();
+  supabaseUrl = cfg.url;
+  supabaseAnonKey = cfg.anonKey;
   wireUp();
   await initSupabaseAuth();
-  if (!authSession) {
-    setError("Login required. Tap Login to continue.");
-    return;
-  }
   await refreshAccountStatus();
   await loadBriefHistory();
+  scheduleAutoRefresh();
   await generateBrief();
 });
