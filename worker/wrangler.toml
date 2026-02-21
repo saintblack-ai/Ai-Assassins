@@ -14,7 +14,6 @@ directory = "../docs"
 [vars]
 OPENAI_MODEL = "gpt-4.1-mini"
 FREE_BRIEFS_PER_DAY = "1"
-REQUIRE_AUTH = "true"
 ALLOWED_ORIGINS = "https://saintblack-ai.github.io"
 PUBLIC_APP_URL = "https://saintblack-ai.github.io/Ai-Assassins"
 SUPABASE_URL = ""
@@ -70,4 +69,10 @@ id = "dd173538e82644268e037befa8836ae4"
 
 [[kv_namespaces]]
 binding = "COMMAND_LOG"
+id = "59ba027565954a76b9fb90c7e4f714fa"
+
+# Preferred namespace for agent execution logs/drafts.
+# Replace with dedicated KV namespace id when provisioned.
+[[kv_namespaces]]
+binding = "AGENT_LOG"
 id = "59ba027565954a76b9fb90c7e4f714fa"
