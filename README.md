@@ -192,3 +192,25 @@ Smoke script:
 node scripts/agent-smoke.mjs
 AGENT_BASE_URL="$WORKER_URL" node scripts/agent-smoke.mjs
 ```
+
+## Public Marketing Surface
+Public routes:
+- `GET /`
+- `GET /public/sample`
+- `GET /public/sample.json`
+
+Behavior:
+- `/` serves a minimal public landing page.
+- `/public/sample` serves sanitized sample brief HTML with:
+  - `top_priorities`
+  - `revenue_actions`
+  - `risks_alerts`
+- `/public/sample.json` returns the same sanitized fields as JSON.
+- lightweight analytics are recorded with SHA-256 hashed IP (no raw IP storage).
+
+Curl tests:
+```bash
+curl https://<worker-url>/
+curl https://<worker-url>/public/sample
+curl https://<worker-url>/public/sample.json
+```

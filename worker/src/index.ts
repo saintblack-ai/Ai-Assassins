@@ -1,4 +1,5 @@
 import legacy from "./legacy.js";
+import { handlePublicRoute } from "./publicRoutes";
 import { getAuthContext } from "./middleware/auth";
 import { isRateLimited } from "./middleware/rateLimit";
 import { handleBrief } from "./handlers/brief";
@@ -908,6 +909,9 @@ export default {
     if (isRateLimited(ip)) return blocked(429, env);
 
     try {
+      const publicResponse = await handlePublicRoute(request, env);
+      if (publicResponse) return publicResponse;
+
       if (
         (url.pathname === "/api/webhook" ||
           url.pathname === "/revenuecat/webhook" ||
