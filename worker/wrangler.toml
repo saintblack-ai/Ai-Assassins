@@ -76,3 +76,8 @@ id = "59ba027565954a76b9fb90c7e4f714fa"
 [[kv_namespaces]]
 binding = "AGENT_LOG"
 id = "59ba027565954a76b9fb90c7e4f714fa"
+
+# RATE_LIMIT_KV: per-IP request throttling buckets (20 req/min)
+[[kv_namespaces]]
+binding = "RATE_LIMIT_KV"
+id = "be5f592bf9cc4c56aed50479e67f20e0"

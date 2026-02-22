@@ -4,7 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import { handlePublicRoute } from "./publicRoutes";
 import { getAuthContext } from "./middleware/auth";
 import { requireAuth, requireSubscriber } from "./middleware";
-import { isRateLimited } from "./middleware/rateLimit";
 import { handleBrief } from "./handlers/brief";
 import { generateBrief, shouldSendNow } from "./briefing";
 import {
@@ -62,6 +61,7 @@ type Env = {
   BRIEF_LOG?: KVNamespace;
   LEADS?: KVNamespace;
   AGENT_LOG?: KVNamespace;
+  RATE_LIMIT_KV?: KVNamespace;
   REVENUECAT_WEBHOOK_SECRET?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
@@ -88,6 +88,9 @@ type Env = {
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
 };
+
+const IP_RATE_LIMIT_PER_MINUTE = 20;
+const IP_RATE_LIMIT_WINDOW_SECONDS = 60;
 
 type BriefCfg = {
   userId: string;
@@ -168,6 +171,31 @@ function okResult(data: unknown, env: Env, status = 200): Response {
 
 function errResult(error: string, env: Env, status = 400): Response {
   return json({ success: false, error }, status, env);
+}
+
+function normalizeError(error: unknown): { status: number; message: string } {
+  if (error && typeof error === "object") {
+    const status = Number((error as { status?: number }).status);
+    const message = (error as { message?: string }).message;
+    if (Number.isInteger(status) && status >= 400 && status <= 599 && typeof message === "string" && message.trim()) {
+      return { status, message };
+    }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return { status: 500, message: error.message };
+  }
+  return { status: 500, message: "Internal server error" };
+}
+
+async function isRateLimitedByIp(env: Env, ip: string): Promise<boolean> {
+  const kv = env.RATE_LIMIT_KV || env.BRIEF_LOG;
+  if (!kv) return false;
+  const bucket = Math.floor(Date.now() / 1000 / IP_RATE_LIMIT_WINDOW_SECONDS);
+  const key = `rl:${ip}:${bucket}`;
+  const raw = await kv.get(key);
+  const next = Number(raw || 0) + 1;
+  await kv.put(key, String(next), { expirationTtl: IP_RATE_LIMIT_WINDOW_SECONDS + 10 });
+  return next > IP_RATE_LIMIT_PER_MINUTE;
 }
 
 function stripeClient(env: Env): Stripe | null {
@@ -906,9 +934,12 @@ async function handleUnifiedWebhook(
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const startedAt = Date.now();
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    console.log(`[request] ${request.method} ${url.pathname}`);
+    console.log(`[request-ip] ${ip}`);
     const envWarnings = requiredEnvWarnings(env);
     if (envWarnings.length) {
       console.warn("[config-warning]", envWarnings.join("; "));
@@ -929,7 +960,10 @@ export default {
     }
 
     if (origin && origin !== allowedOrigin(env)) return blocked(403, env);
-    if (isRateLimited(ip)) return blocked(429, env);
+    const isApiLikePath = url.pathname.startsWith("/api/") || url.pathname === "/brief" || url.pathname === "/daily";
+    if (isApiLikePath && await isRateLimitedByIp(env, ip)) {
+      return errResult("Rate limit exceeded", env, 429);
+    }
 
     try {
       const publicResponse = await handlePublicRoute(request, env);
@@ -1371,6 +1405,16 @@ export default {
         const isAuthenticated = Boolean(auth.validated && auth.userId && !auth.userId.startsWith("device:"));
 
         const body = await request.clone().json().catch(() => ({} as any));
+        if (url.pathname === "/api/generate") {
+          if (!body || typeof body !== "object") {
+            return errResult("Invalid request body. Expected JSON object.", env, 400);
+          }
+          const message = String(body?.message || "").trim();
+          if (!message) {
+            return errResult("Missing required field: message", env, 400);
+          }
+          body.focus = body.focus || message;
+        }
         const extractedUserId = resolveBriefUserId({
           authUserId: auth.userId,
           deviceHeader: request.headers.get("X-Device-Id"),
@@ -1662,8 +1706,13 @@ export default {
       // Keep existing endpoints working by delegating to previous implementation.
       const legacyResponse = await legacy.fetch(request as any, env as any);
       return withSecurityHeaders(legacyResponse, env);
-    } catch {
-      return blocked(403, env);
+    } catch (error) {
+      const normalized = normalizeError(error);
+      console.error("[worker-error]", normalized.message, { status: normalized.status });
+      return errResult(normalized.message, env, normalized.status);
+    } finally {
+      const elapsedMs = Date.now() - startedAt;
+      console.log(`[execution-time-ms] ${elapsedMs}`);
     }
   },
 
