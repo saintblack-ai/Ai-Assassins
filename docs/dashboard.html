@@ -148,7 +148,8 @@
     (() => {
       "use strict";
 
-      const API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+      const WORKER_URL = "https://ai-assassins-worker.quandrix357.workers.dev";
+      const API_BASE = WORKER_URL;
 
       const byId = (id) => {
         const el = document.getElementById(id);
@@ -282,7 +283,7 @@
 
         btn.disabled = true;
         status.textContent = "Generating brief...";
-        terminal.textContent = "Dispatching POST /api/brief ...";
+        terminal.textContent = "Dispatching POST /api/generate ...";
 
         try {
           const payload = {
@@ -292,11 +293,17 @@
             tone: "strategic"
           };
 
-          const result = await fetchJson("/api/brief", {
+          const response = await fetch(`${WORKER_URL}/api/generate`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
           });
+          const text = await response.text();
+          const result = text ? JSON.parse(text) : {};
+          if (!response.ok) {
+            const msg = result?.error || `Request failed (${response.status})`;
+            throw new Error(msg);
+          }
 
           status.textContent = `Brief generated @ ${new Date().toISOString()}`;
           terminal.textContent = pretty(result);

@@ -1,4 +1,5 @@
-const DEFAULT_API_BASE = "https://ai-assassins-api.quandrix357.workers.dev";
+const WORKER_URL = "https://ai-assassins-worker.quandrix357.workers.dev";
+const DEFAULT_API_BASE = WORKER_URL;
 const API_BASE_STORAGE_KEY = "AI_ASSASSINS_API_BASE";
 const DEVICE_ID_KEY = "AIA_DEVICE_ID";
 const SUPABASE_URL_KEY = "AIA_SUPABASE_URL";
@@ -8,6 +9,7 @@ const SETTINGS_KEY = "AIA_DEFAULT_SETTINGS";
 
 const IDS = {
   btnGenerate: "btnGenerate",
+  btnAutoBrief: "btnAutoBrief",
   loadingState: "loadingState",
   errorBox: "errorBox",
   latInput: "latInput",
@@ -296,6 +298,14 @@ function safeJsonParse(text) {
   }
 }
 
+function userFacingError(raw) {
+  const msg = String(raw || "");
+  if (msg.includes("rate_limit_exceeded")) return "Quota limit reached for your tier today.";
+  if (msg.includes("upgrade_required")) return "Upgrade required for this feature.";
+  if (msg.includes("email_not_configured")) return "Email not configured. Ask admin to set RESEND_API_KEY and DAILY_ALERT_TO.";
+  return msg;
+}
+
 async function fetchWithTimeout(url, init, timeoutMs = 12000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -440,39 +450,58 @@ function switchTab(tabName) {
 }
 
 async function requestBrief({ lat, lon, focus, tone, icsUrl }) {
-  const base = getApiBase().replace(/\/$/, "");
-  const postUrl = `${base}/api/brief`;
   const deviceId = getOrCreateDeviceId();
+  const payload = {
+    deviceId,
+    lat: lat || null,
+    lon: lon || null,
+    focus: focus || null,
+    tone: tone || null,
+    icsUrl: icsUrl || null
+  };
 
-  const res = await fetchWithTimeout(
-    postUrl,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        Accept: "application/json",
-        "X-Device-Id": deviceId,
-        ...authHeaders()
-      },
-      cache: "no-store",
-      mode: "cors",
-      body: JSON.stringify({
-        deviceId,
-        lat: lat || null,
-        lon: lon || null,
-        focus: focus || null,
-        tone: tone || null,
-        icsUrl: icsUrl || null
-      })
-    },
-    12000
-  );
+  const res = await fetch(`${WORKER_URL}/api/generate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
 
   const txt = await res.text();
   const parsed = safeJsonParse(txt);
   if (!parsed.ok) throw new Error(`Brief request failed: ${parsed.error}`);
-  if (!res.ok) throw new Error(`Brief request failed (${res.status}): ${txt}`);
+  if (!res.ok) {
+    const mapped = userFacingError(parsed?.data?.error || txt);
+    throw new Error(mapped);
+  }
   return parsed.data;
+}
+
+async function viewDailyAutoBrief() {
+  setError("");
+  setLoadingState(true, "Loading auto brief...");
+  try {
+    let data = null;
+    if (window.AIASupabase?.fetchAutoBrief) {
+      data = await window.AIASupabase.fetchAutoBrief();
+    } else {
+      const res = await fetchWithTimeout(`${getApiBase()}/api/brief/auto`, {
+        headers: { Accept: "application/json", ...authHeaders() },
+        cache: "no-store",
+        mode: "cors",
+      });
+      const text = await res.text();
+      const parsed = safeJsonParse(text);
+      if (!parsed.ok || !res.ok) throw new Error(parsed?.data?.error || "Unable to load auto brief");
+      data = parsed.data;
+    }
+    const brief = data?.brief || data;
+    renderBrief(brief || {});
+    toast("Loaded daily auto brief");
+  } catch (error) {
+    setError(userFacingError(error?.message || "Unable to load daily auto brief"));
+  } finally {
+    setLoadingState(false);
+  }
 }
 
 async function loadBriefHistory() {
@@ -484,15 +513,21 @@ async function loadBriefHistory() {
   }
 
   try {
-    const res = await fetchWithTimeout(`${getApiBase()}/api/briefs`, {
-      headers: { Accept: "application/json", ...authHeaders() },
-      cache: "no-store",
-      mode: "cors"
-    }, 12000);
-    const text = await res.text();
-    const parsed = safeJsonParse(text);
-    if (!parsed.ok || !res.ok) throw new Error("Unable to load brief history");
-    const items = Array.isArray(parsed.data?.items) ? parsed.data.items : [];
+    let items = [];
+    if (window.AIASupabase?.fetchHistory) {
+      const payload = await window.AIASupabase.fetchHistory();
+      items = Array.isArray(payload?.items) ? payload.items : [];
+    } else {
+      const res = await fetchWithTimeout(`${getApiBase()}/api/briefs`, {
+        headers: { Accept: "application/json", ...authHeaders() },
+        cache: "no-store",
+        mode: "cors"
+      }, 12000);
+      const text = await res.text();
+      const parsed = safeJsonParse(text);
+      if (!parsed.ok || !res.ok) throw new Error("Unable to load brief history");
+      items = Array.isArray(parsed.data?.items) ? parsed.data.items : [];
+    }
     knownBriefs = items;
     renderPastBriefs(items);
   } catch (error) {
@@ -623,6 +658,7 @@ async function refreshAccountStatus() {
     const details = byId(IDS.tierDetails);
     if (details && data.user_id) {
       details.textContent += ` | User: ${data.user_id}${data.email ? ` (${data.email})` : ""}`;
+      details.textContent += " | Tip: set RESEND_API_KEY + DAILY_ALERT_TO for automated email delivery.";
     }
     const emailBadge = byId(IDS.userEmailBadge);
     if (emailBadge) {
@@ -658,7 +694,7 @@ async function generateBrief() {
     await loadBriefHistory();
   } catch (err) {
     console.error("[AI-Assassins] generate failed", err);
-    setError(err?.message || String(err));
+    setError(userFacingError(err?.message || String(err)));
   } finally {
     setLoadingState(false);
   }
@@ -786,9 +822,23 @@ function resetApiBaseOverride() {
 }
 
 function wireUp() {
+  const generateBtn = byId(IDS.btnGenerate);
+  if (generateBtn && !byId(IDS.btnAutoBrief)) {
+    const autoBtn = document.createElement("button");
+    autoBtn.id = IDS.btnAutoBrief;
+    autoBtn.textContent = "View Daily Auto Brief";
+    autoBtn.style.marginLeft = "8px";
+    generateBtn.parentElement?.insertBefore(autoBtn, generateBtn.nextSibling);
+  }
+
   byId(IDS.btnGenerate)?.addEventListener("click", (e) => {
     e.preventDefault();
     generateBrief();
+  });
+
+  byId(IDS.btnAutoBrief)?.addEventListener("click", (e) => {
+    e.preventDefault();
+    viewDailyAutoBrief();
   });
 
   byId(IDS.btnLogin)?.addEventListener("click", () => {

@@ -70,6 +70,42 @@
     return c.auth.onAuthStateChange((_event, session) => callback(session || null));
   }
 
+  function apiBase() {
+    const stored = String(localStorage.getItem("AI_ASSASSINS_API_BASE") || "").trim();
+    return (stored || "https://ai-assassins-api.quandrix357.workers.dev").replace(/\/+$/, "");
+  }
+
+  async function apiFetch(path) {
+    const session = await getSession();
+    const headers = { Accept: "application/json" };
+    if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+    const res = await fetch(`${apiBase()}${path}`, { headers, cache: "no-store", mode: "cors" });
+    const text = await res.text();
+    let data = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      throw new Error("Invalid API JSON response");
+    }
+    if (!res.ok) {
+      const error = data?.error || `HTTP_${res.status}`;
+      throw new Error(String(error));
+    }
+    return data;
+  }
+
+  async function fetchAutoBrief() {
+    return apiFetch("/api/brief/auto");
+  }
+
+  async function fetchLatestBrief() {
+    return apiFetch("/api/brief/latest");
+  }
+
+  async function fetchHistory() {
+    return apiFetch("/api/briefs");
+  }
+
   window.AIASupabase = {
     signUp,
     signIn,
@@ -78,5 +114,8 @@
     getUser,
     onAuthChange,
     getClient,
+    fetchAutoBrief,
+    fetchLatestBrief,
+    fetchHistory,
   };
 })();
