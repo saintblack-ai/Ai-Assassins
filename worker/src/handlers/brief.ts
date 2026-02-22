@@ -1,44 +1,80 @@
-import { isUsageAllowed, tierLimit, type Tier } from "../services/subscription";
+import { tierLimit, type Tier } from "../services/subscription";
 import { getUsage, incrementUsage, logRevenueEvent, saveBriefHistory } from "../services/usage";
 import { buildIntelligencePayload, recommendedActions, scoreIntelligence } from "../services/intel";
 
 type Env = {
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
+  ALLOWED_ORIGINS?: string;
+  FREE_BRIEFS_PER_DAY?: string;
   USAGE_STATE?: KVNamespace;
+  DAILY_BRIEF_LOG?: KVNamespace;
   REVENUE_LOG?: KVNamespace;
   BRIEF_HISTORY?: KVNamespace;
 };
 
-export async function handleBrief(request: Request, env: Env, userId: string, tier: Tier): Promise<Response> {
-  const usedToday = await getUsage(env, userId);
-  if (!isUsageAllowed(tier, usedToday, env as any)) {
-    await logRevenueEvent(env, userId, tier, "brief_limit_blocked", false);
-    return limitReached(usedToday, tierLimit(tier, env as any));
+export async function handleBrief(request: Request, env: Env, userId: string | null, tier: Tier): Promise<Response> {
+  const effectiveUserId = userId || "device:guest";
+  const isGuest = effectiveUserId === "device:guest";
+  const effectiveTier: Tier = isGuest ? "free" : tier;
+  const quota = isGuest ? Number(env.FREE_BRIEFS_PER_DAY || 1) : tierLimit(effectiveTier, env as any);
+  const usedToday = isGuest ? await getGuestUsage(env) : await getUsage(env, effectiveUserId);
+
+  if (!isUsageAllowedByQuota(usedToday, quota)) {
+    await logRevenueEvent(env, effectiveUserId, effectiveTier, "brief_limit_blocked", false);
+    return limitReached(usedToday, quota, env);
   }
 
-  const OPENAI_API_KEY = env.OPENAI_API_KEY;
+  const OPENAI_API_KEY = String(env.OPENAI_API_KEY || "").trim();
   if (!OPENAI_API_KEY) {
-    await logRevenueEvent(env, userId, tier, "brief_missing_openai_key", false);
-    return blocked(503, ["OPENAI_API_KEY"]);
+    await logRevenueEvent(env, effectiveUserId, effectiveTier, "brief_missing_openai_key", false);
+    return blocked(503, ["OPENAI_API_KEY"], env);
   }
 
   const input = await request.json().catch(() => ({} as any));
-  const brief = await generateBrief(OPENAI_API_KEY, env.OPENAI_MODEL || "gpt-4.1-mini", input);
-
-  await incrementUsage(env, userId);
-  await saveBriefHistory(env, userId, brief);
-  if (tier !== "free") {
-    await logRevenueEvent(env, userId, tier, "brief_generated", true);
+  let brief: any;
+  try {
+    brief = await generateBrief(OPENAI_API_KEY, env.OPENAI_MODEL || "gpt-4.1-mini", input);
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "unknown_error";
+    return makeJson({
+      success: false,
+      error: "openai_request_failed",
+      details,
+    }, 502, env);
   }
+
+  if (isGuest) {
+    await incrementGuestUsage(env);
+  } else {
+    await incrementUsage(env, effectiveUserId);
+  }
+  await saveBriefHistory(env, effectiveUserId, brief);
+  if (effectiveTier !== "free") {
+    await logRevenueEvent(env, effectiveUserId, effectiveTier, "brief_generated", true);
+  }
+  console.log(
+    JSON.stringify({
+      event: "BRIEF_GENERATED",
+      user_id: effectiveUserId,
+      tier: effectiveTier,
+      usage_today: usedToday + 1,
+      usage_limit: quota,
+    })
+  );
+
+  const briefPayload = {
+    tier: effectiveTier,
+    usage_today: usedToday + 1,
+    usage_limit: quota,
+    ...brief,
+  };
 
   return ok({
     success: true,
-    tier,
-    usage_today: usedToday + 1,
-    usage_limit: tierLimit(tier, env as any),
-    ...brief,
-  });
+    brief: briefPayload,
+    ...briefPayload,
+  }, 200, env);
 }
 
 async function generateBrief(apiKey: string, model: string, input: any): Promise<any> {
@@ -122,18 +158,27 @@ async function generateBrief(apiKey: string, model: string, input: any): Promise
     }
   };
 
-  const r = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(payload)
-  });
-  if (!r.ok) throw new Error("OpenAI request failed");
-  const data: any = await r.json();
-  const output = extractOutputText(data);
-  const parsed = JSON.parse(output);
+  let parsed: any;
+  try {
+    const r = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+    if (!r.ok) {
+      const errText = await r.text().catch(() => "");
+      throw new Error(`openai_http_${r.status}:${errText.slice(0, 300)}`);
+    }
+    const data: any = await r.json();
+    const output = extractOutputText(data);
+    parsed = JSON.parse(output);
+  } catch (error) {
+    const details = error instanceof Error ? error.message : "openai_request_failed";
+    throw new Error(details);
+  }
   return {
     ...parsed,
     risk_score: Number(parsed?.risk_score ?? scores.risk_score),
@@ -162,11 +207,20 @@ function extractOutputText(response: any): string {
   throw new Error("Invalid OpenAI response");
 }
 
-function ok(data: unknown, status = 200): Response {
+function corsOrigin(env?: Env): string {
+  const raw = String(env?.ALLOWED_ORIGINS || "").trim();
+  if (!raw) return "*";
+  return raw.split(",")[0].trim() || "*";
+}
+
+function makeJson(data: unknown, status = 200, env?: Env): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": corsOrigin(env),
+      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
       "X-Content-Type-Options": "nosniff",
       "X-Frame-Options": "DENY",
       "Referrer-Policy": "strict-origin-when-cross-origin",
@@ -175,33 +229,44 @@ function ok(data: unknown, status = 200): Response {
   });
 }
 
-function blocked(status = 403, missing: string[] = []): Response {
-  return new Response(JSON.stringify({ success: false, error: "Request blocked", ...(missing.length ? { missing } : {}) }), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
-      "Content-Security-Policy": "default-src 'self'"
-    }
-  });
+function ok(data: unknown, status = 200, env?: Env): Response {
+  return makeJson(data, status, env);
 }
 
-function limitReached(usageToday: number, usageLimit: number | null): Response {
-  return new Response(JSON.stringify({
+function blocked(status = 403, missing: string[] = [], env?: Env): Response {
+  return makeJson({ success: false, error: "configuration_error", ...(missing.length ? { missing } : {}) }, status, env);
+}
+
+function limitReached(usageToday: number, usageLimit: number | null, env?: Env): Response {
+  return makeJson({
     success: false,
-    error: "limit reached",
+    error: "rate_limit_exceeded",
     usage_today: usageToday,
     usage_limit: usageLimit,
-  }), {
-    status: 429,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Content-Type-Options": "nosniff",
-      "X-Frame-Options": "DENY",
-      "Referrer-Policy": "strict-origin-when-cross-origin",
-      "Content-Security-Policy": "default-src 'self'"
-    }
-  });
+  }, 429, env);
+}
+
+function isUsageAllowedByQuota(usedToday: number, quota: number | null): boolean {
+  if (quota == null) return true;
+  return usedToday < quota;
+}
+
+function guestUsageKey(dateIso: string): string {
+  return `guest_usage:${dateIso}`;
+}
+
+async function getGuestUsage(env: Env): Promise<number> {
+  if (!env.DAILY_BRIEF_LOG) return 0;
+  const key = guestUsageKey(new Date().toISOString().slice(0, 10));
+  const raw = await env.DAILY_BRIEF_LOG.get(key);
+  return Number(raw || 0);
+}
+
+async function incrementGuestUsage(env: Env): Promise<number> {
+  if (!env.DAILY_BRIEF_LOG) return 0;
+  const key = guestUsageKey(new Date().toISOString().slice(0, 10));
+  const current = Number((await env.DAILY_BRIEF_LOG.get(key)) || 0);
+  const next = current + 1;
+  await env.DAILY_BRIEF_LOG.put(key, String(next), { expirationTtl: 60 * 60 * 24 * 2 });
+  return next;
 }

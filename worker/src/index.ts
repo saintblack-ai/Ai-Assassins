@@ -1364,7 +1364,7 @@ export default {
         return json({ success: true, deleted: briefId }, 200, env);
       }
 
-      if ((url.pathname === "/api/brief" || url.pathname === "/brief") && request.method === "POST") {
+      if ((url.pathname === "/api/brief" || url.pathname === "/brief" || url.pathname === "/api/generate") && request.method === "POST") {
         const auth = await getAuthContext(request, env);
         const rejected = authRejected(auth, env);
         if (rejected) return rejected;

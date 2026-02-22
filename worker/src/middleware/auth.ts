@@ -7,21 +7,52 @@ export type AuthContext = {
   createdAt: string | null;
   tokenProvided: boolean;
   invalidToken: boolean;
+  isGuest: boolean;
 };
 
 type AuthEnv = {
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  REQUIRE_AUTH?: string;
 };
 
 function sanitizeDeviceId(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 128);
 }
 
+function deterministicGuestId(request: Request): string {
+  const deviceHeader = sanitizeDeviceId(request.headers.get("X-Device-Id") || "");
+  if (deviceHeader) return `device:${deviceHeader}`;
+
+  const ip = String(request.headers.get("CF-Connecting-IP") || "unknown").trim();
+  const ua = String(request.headers.get("User-Agent") || "unknown").trim();
+  const seed = `${ip}|${ua}`;
+
+  let hash = 5381;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = ((hash << 5) + hash + seed.charCodeAt(i)) >>> 0;
+  }
+  return `device:guest_${hash.toString(16)}`;
+}
+
 export async function getAuthContext(request: Request, env?: AuthEnv): Promise<AuthContext> {
+  const requireAuth = String(env?.REQUIRE_AUTH || "").toLowerCase() === "true";
   const authHeader = request.headers.get("Authorization") || "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const bearerProvided = authHeader.startsWith("Bearer ");
+  const token = bearerProvided ? authHeader.slice(7).trim() : "";
+  if (bearerProvided && !token) {
+    return {
+      userId: null,
+      email: null,
+      createdAt: null,
+      validated: false,
+      tokenProvided: true,
+      invalidToken: true,
+      isGuest: false,
+    };
+  }
+
   if (token) {
     const userId = await validateToken(token, env || {});
     if (!userId) {
@@ -32,6 +63,7 @@ export async function getAuthContext(request: Request, env?: AuthEnv): Promise<A
         validated: false,
         tokenProvided: true,
         invalidToken: true,
+        isGuest: false,
       };
     }
 
@@ -43,27 +75,29 @@ export async function getAuthContext(request: Request, env?: AuthEnv): Promise<A
       validated: true,
       tokenProvided: true,
       invalidToken: false,
+      isGuest: false,
     };
   }
 
-  const deviceId = sanitizeDeviceId(request.headers.get("X-Device-Id") || "");
-  if (deviceId) {
+  if (requireAuth) {
     return {
-      userId: `device:${deviceId}`,
+      userId: null,
       email: null,
       createdAt: null,
       validated: false,
       tokenProvided: false,
       invalidToken: false,
+      isGuest: false,
     };
   }
 
   return {
-    userId: null,
+    userId: deterministicGuestId(request),
     email: null,
     createdAt: null,
     validated: false,
     tokenProvided: false,
     invalidToken: false,
+    isGuest: true,
   };
 }

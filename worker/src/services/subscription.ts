@@ -7,7 +7,7 @@ type Env = {
 
 const TIER_LIMITS: Record<Tier, number | null> = {
   free: 1,
-  pro: 25,
+  pro: 10,
   premium: 10,
   elite: 100,
   enterprise: null,

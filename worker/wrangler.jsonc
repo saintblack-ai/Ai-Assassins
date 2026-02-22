@@ -1,0 +1,68 @@
+{
+  "name": "ai-assassins-worker",
+  "compatibility_date": "2026-02-17",
+  "main": "src/index.ts",
+  "workers_dev": true,
+  "assets": {
+    "directory": "../docs"
+  },
+  "vars": {
+    "OPENAI_MODEL": "gpt-4.1-mini",
+    "FREE_BRIEFS_PER_DAY": "1",
+    "ALLOWED_ORIGINS": "https://saintblack-ai.github.io",
+    "PUBLIC_APP_URL": "https://saintblack-ai.github.io/Ai-Assassins",
+    "SUPABASE_URL": "",
+    "SUPABASE_ANON_KEY": "",
+    "STRIPE_PRICE_ID": "",
+    "STRIPE_PRICE_ID_PRO": "",
+    "STRIPE_PRICE_ID_ELITE": "",
+    "STRIPE_PRICE_ID_ENTERPRISE": "",
+    "STRIPE_PRICE_PRO": "",
+    "STRIPE_PRICE_ELITE": "",
+    "STRIPE_PRICE_ENTERPRISE": "",
+    "ENTERPRISE_DAILY_LIMIT": "",
+    "BRIEF_TIMEZONE": "America/Chicago",
+    "BRIEF_SEND_HHMM": "0700",
+    "DAILY_ALERT_TO": ""
+  },
+  "kv_namespaces": [
+    {
+      "binding": "USER_STATE",
+      "id": "5b20a68249014767b229fc2284111a36"
+    },
+    {
+      "binding": "USAGE_STATE",
+      "id": "a748caf55c2d479c94fa8dfde604a2f3"
+    },
+    {
+      "binding": "REVENUE_LOG",
+      "id": "cd21d7bb23da497daf3addcbf8ba01e1"
+    },
+    {
+      "binding": "LEADS",
+      "id": "22942df275bd4797b34b93224e8738c7"
+    },
+    {
+      "binding": "BRIEF_LOG",
+      "id": "be5f592bf9cc4c56aed50479e67f20e0"
+    },
+    {
+      "binding": "DAILY_BRIEF_LOG",
+      "id": "dd173538e82644268e037befa8836ae4"
+    },
+    {
+      "binding": "COMMAND_LOG",
+      "id": "59ba027565954a76b9fb90c7e4f714fa"
+    },
+    {
+      "binding": "AGENT_LOG",
+      "id": "59ba027565954a76b9fb90c7e4f714fa"
+    }
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "triggers": {
+    "crons": ["0 7 * * *"]
+  }
+}
