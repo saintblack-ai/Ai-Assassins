@@ -1,6 +1,9 @@
 import legacy from "./legacy.js";
+import Stripe from "stripe";
+import { createClient } from "@supabase/supabase-js";
 import { handlePublicRoute } from "./publicRoutes";
 import { getAuthContext } from "./middleware/auth";
+import { requireAuth, requireSubscriber } from "./middleware";
 import { isRateLimited } from "./middleware/rateLimit";
 import { handleBrief } from "./handlers/brief";
 import { generateBrief, shouldSendNow } from "./briefing";
@@ -34,11 +37,16 @@ import { resolveBriefUserId } from "./identity";
 import { getAgentHistory, parseAgentName, runAgent } from "./agents";
 import {
   deleteSupabaseBrief,
+  getProfile,
   getSupabaseTier,
+  insertBriefHistory,
+  listBriefHistory,
   listSupabaseBriefs,
   saveSupabaseBrief,
+  setProfileSubscriberStatus,
   upsertSupabaseUsage,
   upsertSupabaseSubscription,
+  upsertProfile,
   upsertSupabaseUser,
 } from "./services/supabase";
 import { buildIntelligencePayload, recommendedActions, scoreIntelligence } from "./services/intel";
@@ -66,6 +74,7 @@ type Env = {
   RESEND_API_KEY?: string;
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+  STRIPE_PRICE_ID?: string;
   STRIPE_PRICE_ID_PRO?: string;
   STRIPE_PRICE_ID_ELITE?: string;
   STRIPE_PRICE_ID_ENTERPRISE?: string;
@@ -151,6 +160,20 @@ function authRejected(auth: { tokenProvided: boolean; invalidToken: boolean }, e
     return json({ success: false, error: "invalid_token" }, 401, env);
   }
   return null;
+}
+
+function okResult(data: unknown, env: Env, status = 200): Response {
+  return json({ success: true, data }, status, env);
+}
+
+function errResult(error: string, env: Env, status = 400): Response {
+  return json({ success: false, error }, status, env);
+}
+
+function stripeClient(env: Env): Stripe | null {
+  const key = String(env.STRIPE_SECRET_KEY || "").trim();
+  if (!key) return null;
+  return new Stripe(key, { apiVersion: "2025-01-27.acacia" as any });
 }
 
 function defaultBriefCfg(env: Env, userId: string): BriefCfg {
@@ -952,6 +975,91 @@ export default {
         );
       }
 
+      if (url.pathname === "/api/health" && request.method === "GET") {
+        return json({ status: "ok", version: "phase-a" }, 200, env);
+      }
+
+      if (url.pathname === "/api/auth/signup" && request.method === "POST") {
+        const body = await request.json().catch(() => ({} as any));
+        const email = String(body?.email || "").trim().toLowerCase();
+        const password = String(body?.password || "");
+        if (!email || !password) return errResult("email_and_password_required", env, 400);
+        if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return errResult("supabase_not_configured", env, 503);
+
+        const client = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const signUpRes = await client.auth.signUp({ email, password });
+        if (signUpRes.error) return errResult(signUpRes.error.message || "signup_failed", env, 400);
+
+        const userId = signUpRes.data.user?.id || null;
+        if (userId) {
+          await upsertProfile(env, userId, false);
+        }
+
+        return okResult({
+          user: signUpRes.data.user
+            ? { id: signUpRes.data.user.id, email: signUpRes.data.user.email || null }
+            : null,
+          session: signUpRes.data.session
+            ? {
+              access_token: signUpRes.data.session.access_token,
+              refresh_token: signUpRes.data.session.refresh_token,
+              expires_at: signUpRes.data.session.expires_at || null,
+            }
+            : null,
+        }, env);
+      }
+
+      if (url.pathname === "/api/auth/login" && request.method === "POST") {
+        const body = await request.json().catch(() => ({} as any));
+        const email = String(body?.email || "").trim().toLowerCase();
+        const password = String(body?.password || "");
+        if (!email || !password) return errResult("email_and_password_required", env, 400);
+        if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return errResult("supabase_not_configured", env, 503);
+
+        const client = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        const loginRes = await client.auth.signInWithPassword({ email, password });
+        if (loginRes.error) return errResult(loginRes.error.message || "login_failed", env, 401);
+
+        const userId = loginRes.data.user?.id || null;
+        if (userId) {
+          const profile = await getProfile(env, userId);
+          if (!profile) await upsertProfile(env, userId, false);
+        }
+
+        return okResult({
+          user: loginRes.data.user
+            ? { id: loginRes.data.user.id, email: loginRes.data.user.email || null }
+            : null,
+          session: loginRes.data.session
+            ? {
+              access_token: loginRes.data.session.access_token,
+              refresh_token: loginRes.data.session.refresh_token,
+              expires_at: loginRes.data.session.expires_at || null,
+            }
+            : null,
+        }, env);
+      }
+
+      if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+        if (!env.SUPABASE_URL || !env.SUPABASE_ANON_KEY) return errResult("supabase_not_configured", env, 503);
+        const body = await request.json().catch(() => ({} as any));
+        const accessToken = String(body?.access_token || "").trim();
+        const refreshToken = String(body?.refresh_token || "").trim();
+        const client = createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+          auth: { persistSession: false, autoRefreshToken: false },
+        });
+        if (accessToken && refreshToken) {
+          await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken }).catch(() => null);
+        }
+        const signOutRes = await client.auth.signOut();
+        if (signOutRes.error) return errResult(signOutRes.error.message || "logout_failed", env, 400);
+        return okResult({ logged_out: true }, env);
+      }
+
       if (url.pathname === "/api/command-brief" && request.method === "GET") {
         if (!env.COMMAND_LOG) return json({ error: "COMMAND_LOG KV not bound" }, 500, env);
         const today = todayIsoDateUTC();
@@ -1025,6 +1133,13 @@ export default {
       }
 
       if (url.pathname === "/api/brief/history" && request.method === "GET") {
+        const auth = await requireAuth(request, env);
+        if (!auth.ok) return errResult(auth.error, env, auth.status);
+        const items = await listBriefHistory(env, auth.ctx.user.id, 20);
+        return okResult({ items }, env);
+      }
+
+      if (url.pathname === "/api/brief/daily-history" && request.method === "GET") {
         if (!env.DAILY_BRIEF_LOG) return json({ error: "DAILY_BRIEF_LOG KV not bound" }, 500, env);
         const items = await listRecentDailyBriefs(env, 7);
         return json({ success: true, items }, 200, env);
@@ -1404,6 +1519,65 @@ export default {
         return json({ success: true, session: result.data }, 200, env);
       }
 
+      if (url.pathname === "/api/billing/create-checkout-session" && request.method === "POST") {
+        const auth = await requireAuth(request, env);
+        if (!auth.ok) return errResult(auth.error, env, auth.status);
+
+        const stripe = stripeClient(env);
+        const priceId = String(env.STRIPE_PRICE_ID || "").trim();
+        if (!stripe || !priceId) return errResult("stripe_not_configured", env, 503);
+
+        const body = await request.json().catch(() => ({} as any));
+        const successUrl = String(body?.success_url || `${env.PUBLIC_APP_URL || ""}/billing-success`);
+        const cancelUrl = String(body?.cancel_url || `${env.PUBLIC_APP_URL || ""}/billing-cancel`);
+        if (!successUrl || !cancelUrl) return errResult("missing_redirect_urls", env, 400);
+
+        const session = await stripe.checkout.sessions.create({
+          mode: "subscription",
+          line_items: [{ price: priceId, quantity: 1 }],
+          success_url: successUrl,
+          cancel_url: cancelUrl,
+          client_reference_id: auth.ctx.user.id,
+          metadata: {
+            user_id: auth.ctx.user.id,
+            email: auth.ctx.user.email || "",
+          },
+        });
+        return okResult({ id: session.id, url: session.url || null }, env);
+      }
+
+      if (url.pathname === "/api/billing/webhook" && request.method === "POST") {
+        const stripe = stripeClient(env);
+        if (!stripe || !env.STRIPE_WEBHOOK_SECRET) return errResult("stripe_not_configured", env, 503);
+
+        const rawBody = await request.text().catch(() => "");
+        const sig = request.headers.get("stripe-signature") || "";
+        let event: Stripe.Event;
+        try {
+          event = await stripe.webhooks.constructEventAsync(
+            rawBody,
+            sig,
+            env.STRIPE_WEBHOOK_SECRET,
+            undefined,
+            Stripe.createSubtleCryptoProvider()
+          );
+        } catch {
+          return errResult("invalid_webhook_signature", env, 400);
+        }
+
+        if (event.type === "checkout.session.completed") {
+          const session = event.data.object as Stripe.Checkout.Session;
+          const userId = String(session.metadata?.user_id || session.client_reference_id || "").trim();
+          if (userId) await setProfileSubscriberStatus(env, userId, true);
+        } else if (event.type === "customer.subscription.deleted") {
+          const subscription = event.data.object as Stripe.Subscription;
+          const userId = String(subscription.metadata?.user_id || "").trim();
+          if (userId) await setProfileSubscriberStatus(env, userId, false);
+        }
+
+        return okResult({ received: true, event: event.type }, env);
+      }
+
       if (url.pathname === "/api/products" && request.method === "GET") {
         return json({
           products: [
@@ -1432,11 +1606,10 @@ export default {
       if (url.pathname.startsWith("/api/agent/run/") && request.method === "POST") {
         const agentName = url.pathname.slice("/api/agent/run/".length).trim().toLowerCase();
         const validAgent = parseAgentName(agentName);
-        if (!validAgent) return json({ success: false, error: "invalid_agent" }, 400, env);
+        if (!validAgent) return errResult("invalid_agent", env, 400);
 
-        const auth = await getAuthContext(request, env);
-        const rejected = authRejected(auth, env);
-        if (rejected) return rejected;
+        const auth = await requireSubscriber(request, env);
+        if (!auth.ok) return errResult(auth.error, env, auth.status);
 
         const body = await request.json().catch(() => ({} as any));
         const mode = body?.mode === "publish" ? "publish" : "draft";
@@ -1444,20 +1617,26 @@ export default {
         const ctxDate = typeof contextInput?.date === "string" ? contextInput.date : todayIsoDateUTC();
         const result = await runAgent(validAgent, mode, env, {
           date: ctxDate,
-          requestedBy: auth.userId || "anonymous",
+          requestedBy: auth.ctx.user.id,
           trigger: "manual",
           context: contextInput,
         });
-        return json(result, 200, env);
+        await insertBriefHistory(env, {
+          user_id: auth.ctx.user.id,
+          content: JSON.stringify(result.data ?? result),
+        });
+        return okResult(result, env);
       }
 
       if (url.pathname.startsWith("/api/agent/history/") && request.method === "GET") {
         const agentName = url.pathname.slice("/api/agent/history/".length).trim().toLowerCase();
         const validAgent = parseAgentName(agentName);
-        if (!validAgent) return json({ success: false, error: "invalid_agent" }, 400, env);
+        if (!validAgent) return errResult("invalid_agent", env, 400);
+        const auth = await requireSubscriber(request, env);
+        if (!auth.ok) return errResult(auth.error, env, auth.status);
         const limit = Math.max(1, Math.min(100, Number(url.searchParams.get("limit") || 20)));
         const items = await getAgentHistory(validAgent, env, limit);
-        return json({ success: true, agent: validAgent, limit, items }, 200, env);
+        return okResult({ agent: validAgent, limit, items }, env);
       }
 
       if (url.pathname === "/api/lead" && request.method === "POST") {

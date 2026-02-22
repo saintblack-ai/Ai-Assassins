@@ -27,6 +27,18 @@ export type BriefRow = {
   data: unknown;
 };
 
+export type BriefHistoryRow = {
+  id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+};
+
+export type ProfileRow = {
+  id: string;
+  is_active_subscriber: boolean;
+};
+
 type RestResult<T> = {
   ok: boolean;
   status: number;
@@ -245,4 +257,101 @@ export async function upsertSupabaseSubscription(
   }];
   const result = await restCall<any[]>(env, "subscriptions", "POST", payload);
   return result.ok;
+}
+
+export async function upsertSupabaseUsage(
+  env: SupabaseEnv,
+  payload: { user_id: string; usage_today: number; usage_limit: number | null; tier: Tier; day: string }
+): Promise<boolean> {
+  if (!hasSupabase(env) || !payload.user_id) return false;
+  const row = [{
+    user_id: payload.user_id,
+    usage_today: payload.usage_today,
+    usage_limit: payload.usage_limit,
+    tier: payload.tier,
+    day: payload.day,
+    updated_at: new Date().toISOString(),
+  }];
+  // Best-effort sync. If table does not exist, this safely returns false.
+  const result = await restCall<any[]>(env, "usage_state", "POST", row);
+  return result.ok;
+}
+
+export async function getProfile(env: SupabaseEnv, userId: string): Promise<ProfileRow | null> {
+  if (!hasSupabase(env) || !userId) return null;
+  const query =
+    `?id=eq.${encodeURIComponent(userId)}` +
+    `&limit=1` +
+    `&select=id,is_active_subscriber`;
+  const result = await restCall<any[]>(env, "profiles", "GET", undefined, query);
+  if (!result.ok || !Array.isArray(result.data) || result.data.length === 0) return null;
+  const row = result.data[0];
+  return {
+    id: String(row.id),
+    is_active_subscriber: Boolean(row.is_active_subscriber),
+  };
+}
+
+export async function upsertProfile(
+  env: SupabaseEnv,
+  userId: string,
+  isActiveSubscriber = false
+): Promise<boolean> {
+  if (!hasSupabase(env) || !userId) return false;
+  const payload = [{
+    id: userId,
+    is_active_subscriber: isActiveSubscriber,
+  }];
+  const result = await restCall<any[]>(env, "profiles", "POST", payload);
+  return result.ok;
+}
+
+export async function setProfileSubscriberStatus(
+  env: SupabaseEnv,
+  userId: string,
+  isActiveSubscriber: boolean
+): Promise<boolean> {
+  if (!hasSupabase(env) || !userId) return false;
+  const query = `?id=eq.${encodeURIComponent(userId)}`;
+  const result = await restCall<any[]>(env, `profiles${query}`, "PATCH", {
+    is_active_subscriber: isActiveSubscriber,
+  });
+  if (result.ok) return true;
+  return upsertProfile(env, userId, isActiveSubscriber);
+}
+
+export async function insertBriefHistory(
+  env: SupabaseEnv,
+  payload: { user_id: string; content: string }
+): Promise<string | null> {
+  if (!hasSupabase(env) || !payload.user_id || !payload.content) return null;
+  const body = [{
+    user_id: payload.user_id,
+    content: payload.content,
+  }];
+  const result = await restCall<any[]>(env, "brief_history", "POST", body);
+  if (!result.ok || !Array.isArray(result.data) || !result.data[0]?.id) return null;
+  return String(result.data[0].id);
+}
+
+export async function listBriefHistory(
+  env: SupabaseEnv,
+  userId: string,
+  limit = 20
+): Promise<BriefHistoryRow[]> {
+  if (!hasSupabase(env) || !userId) return [];
+  const safeLimit = Math.max(1, Math.min(200, Number(limit) || 20));
+  const query =
+    `?user_id=eq.${encodeURIComponent(userId)}` +
+    `&order=created_at.desc` +
+    `&limit=${safeLimit}` +
+    `&select=id,user_id,content,created_at`;
+  const result = await restCall<any[]>(env, "brief_history", "GET", undefined, query);
+  if (!result.ok || !Array.isArray(result.data)) return [];
+  return result.data.map((row: any) => ({
+    id: String(row.id),
+    user_id: String(row.user_id),
+    content: String(row.content || ""),
+    created_at: String(row.created_at || ""),
+  }));
 }

@@ -7,6 +7,10 @@
     "deploy": "wrangler deploy",
     "dev": "wrangler dev"
   },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "stripe": "^18.4.0"
+  },
   "devDependencies": {
     "wrangler": "^4.65.0"
   }
