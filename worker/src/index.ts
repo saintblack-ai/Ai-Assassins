@@ -1542,6 +1542,11 @@ export default {
             user_id: auth.ctx.user.id,
             email: auth.ctx.user.email || "",
           },
+          subscription_data: {
+            metadata: {
+              user_id: auth.ctx.user.id,
+            },
+          },
         });
         return okResult({ id: session.id, url: session.url || null }, env);
       }
