@@ -20,7 +20,7 @@
     "@capacitor/ios": "^7.1.0",
     "@capacitor/splash-screen": "^7.0.1",
     "@capacitor/status-bar": "^7.0.1",
-    "@revenuecat/purchases-capacitor": "^8.8.0"
+    "@revenuecat/purchases-capacitor": "^12.0.4"
   },
   "devDependencies": {
     "@capacitor/cli": "^7.1.0",
