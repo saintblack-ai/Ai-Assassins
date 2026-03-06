@@ -25,6 +25,7 @@
   </script>
 </head>
 <body class="min-h-screen bg-abyss text-slate-100">
+  <div id="authLoading" class="mx-auto max-w-7xl px-4 py-6 text-sm text-muted">Loading dashboard...</div>
   <div class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
     <header class="mb-6 rounded-xl border border-neonSoft/40 bg-panel/90 p-5 shadow-neon">
       <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -33,11 +34,20 @@
           <p class="mt-1 text-sm text-muted">Saint Black Intelligence System</p>
         </div>
         <div class="flex items-center gap-3">
+          <span class="text-xs uppercase tracking-[0.2em] text-muted">User</span>
+          <span id="userEmail" class="rounded-full border border-neonSoft/60 bg-neonSoft/15 px-3 py-1 text-xs font-medium text-neon">Loading...</span>
           <span class="text-xs uppercase tracking-[0.2em] text-muted">Current Tier</span>
           <span id="tierBadge" class="rounded-full border border-neonSoft/60 bg-neonSoft/15 px-3 py-1 text-xs font-medium text-neon">Loading...</span>
         </div>
       </div>
     </header>
+
+    <section class="mt-6 rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
+      <h2 class="text-sm uppercase tracking-[0.2em] text-neon">Daily Brief History</h2>
+      <div class="mt-3 rounded-lg border border-neonSoft/25 bg-black/35 p-3 text-sm text-muted">
+        History list placeholder.
+      </div>
+    </section>
 
     <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <article class="rounded-xl border border-neonSoft/30 bg-panel p-4 shadow-neon">
@@ -144,6 +154,9 @@
     <div id="dashboardError" class="mt-4 hidden rounded-lg border border-red-500/40 bg-red-900/20 p-3 text-sm text-red-200"></div>
   </div>
 
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./supabaseClient.js"></script>
   <script>
     (() => {
       "use strict";
@@ -174,6 +187,12 @@
         }
       };
 
+      const setLoadingState = (isLoading) => {
+        const el = byId("authLoading");
+        if (!el) return;
+        el.style.display = isLoading ? "block" : "none";
+      };
+
       async function fetchJson(path, init = {}) {
         const url = `${API_BASE}${path}`;
         const response = await fetch(url, {
@@ -202,6 +221,27 @@
 
       function pretty(value) {
         return JSON.stringify(value, null, 2);
+      }
+
+      function redirectToLogin() {
+        window.location.href = "/login";
+      }
+
+      async function requireSession() {
+        setLoadingState(true);
+        if (!window.AIASupabase || !window.AIASupabase.getSession) {
+          redirectToLogin();
+          return null;
+        }
+        const session = await window.AIASupabase.getSession();
+        if (!session) {
+          redirectToLogin();
+          return null;
+        }
+        const email = session?.user?.email || "Unknown user";
+        setText("userEmail", email);
+        setLoadingState(false);
+        return session;
       }
 
       async function loadStats() {
@@ -437,8 +477,11 @@
       }
 
       async function init() {
+        const session = await requireSession();
+        if (!session) return;
         wireEvents();
         await Promise.all([loadStats(), loadApiStatus(), loadLatestRevenueBrief(), loadDailyBrief(), loadCommanderDaily()]);
+        setLoadingState(false);
       }
 
       if (document.readyState === "loading") {
