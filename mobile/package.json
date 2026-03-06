@@ -14,16 +14,16 @@
     "build:ios": "npx cap sync ios && xcodebuild -workspace ios/App/App.xcworkspace -scheme App -configuration Release -sdk iphoneos -archivePath ios/build/App.xcarchive archive"
   },
   "dependencies": {
-    "@capacitor/android": "^7.1.0",
-    "@capacitor/app": "^7.0.1",
-    "@capacitor/core": "^7.1.0",
-    "@capacitor/ios": "^7.1.0",
-    "@capacitor/splash-screen": "^7.0.1",
-    "@capacitor/status-bar": "^7.0.1",
-    "@revenuecat/purchases-capacitor": "^12.0.4"
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/ios": "^8.0.0",
+    "@capacitor/splash-screen": "^8.0.0",
+    "@capacitor/status-bar": "^8.0.0",
+    "@revenuecat/purchases-capacitor": "12.2.2"
   },
   "devDependencies": {
-    "@capacitor/cli": "^7.1.0",
+    "@capacitor/cli": "^8.0.0",
     "typescript": "^5.8.2"
   }
 }
