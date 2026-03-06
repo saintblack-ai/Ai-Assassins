@@ -2,18 +2,18 @@ name: Supabase heartbeat
 
 on:
   schedule:
-    - cron: '0 0 * * 0,5'  # Sunday and Friday
+    - cron: '0 0 * * 0,5' # Sunday and Friday at 00:00 UTC
   workflow_dispatch:
 
 jobs:
   ping:
     runs-on: ubuntu-latest
+    # Skip forks (secrets unavailable) to avoid false failures
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
     steps:
-      - name: Wake Supabase auth health endpoint
-        run: |
-          curl -f -s -S "${SUPABASE_URL}/auth/v1/health" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}"
+      - name: Ping worker health endpoint
         env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          HEALTH_URL: https://archaios-saas-worker.quandrix357.workers.dev/api/health
+        run: |
+          echo "Pinging ${HEALTH_URL}"
+          curl -f -sS -L --connect-timeout 10 --max-time 30 --retry 3 --retry-all-errors --retry-delay 2 "${HEALTH_URL}"
