@@ -1,5 +1,102 @@
 <!doctype html>
 <html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ARCHAIOS Command Center</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="frame">
+        <aside class="sidebar">
+          <h1 class="brand">
+            ARCHAIOS
+            <span>GitHub Pages Command Center</span>
+          </h1>
+          <p class="nav-section-label">Command Rail</p>
+          <nav class="nav" id="nav-rail"></nav>
+        </aside>
+
+        <main class="content">
+          <section class="command-bar" id="command-bar"></section>
+
+          <section class="signal-row" id="signal-row"></section>
+
+          <section class="hero">
+            <h2 class="hero-title">Operate the ARCHAIOS intelligence network from a static command terminal.</h2>
+            <p class="hero-text">
+              This GitHub Pages site mirrors the latest dashboard features with fallback intelligence, local saved briefs,
+              and executable operations so the published docs always show the current ARCHAIOS product surface.
+            </p>
+          </section>
+
+          <section class="section" id="overview-view">
+            <div class="section-header">
+              <h2>Overview</h2>
+              <div class="actions">
+                <select class="input control-select" id="mission-mode"></select>
+                <button class="button" id="generate-brief">Generate Brief</button>
+                <button class="button button-secondary" id="save-brief">Save Brief</button>
+              </div>
+            </div>
+            <div class="cards" id="overview-cards"></div>
+            <div class="section-header spaced">
+              <h2>Agent Status</h2>
+            </div>
+            <div class="cards" id="agent-status-panel"></div>
+            <div class="grid-two">
+              <div class="panel terminal decision-hero" id="decision-panel"></div>
+              <div class="terminal" id="intel-stream-panel"></div>
+            </div>
+          </section>
+
+          <section class="section hidden" id="intelligence-view">
+            <div class="section-header">
+              <h2>Intelligence</h2>
+            </div>
+            <div class="terminal" id="intelligence-view-panel"></div>
+          </section>
+
+          <section class="section hidden" id="decision-view">
+            <div class="section-header">
+              <h2>Decision Engine</h2>
+            </div>
+            <div class="grid-two">
+              <div class="panel terminal decision-hero" id="decision-view-panel"></div>
+              <div class="terminal" id="market-intel-view-panel"></div>
+            </div>
+          </section>
+
+          <section class="section hidden" id="operations-view">
+            <div class="section-header">
+              <h2>Operations Board</h2>
+            </div>
+            <div class="operations-board" id="operations-board"></div>
+          </section>
+
+          <section class="section hidden" id="saved-view">
+            <div class="section-header">
+              <h2>Saved Briefs</h2>
+            </div>
+            <div class="cards" id="saved-briefs-panel"></div>
+          </section>
+
+          <section class="section hidden" id="settings-view">
+            <div class="section-header">
+              <h2>Settings</h2>
+            </div>
+            <div class="terminal" id="settings-panel"></div>
+          </section>
+        </main>
+      </div>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+<!doctype html>
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
