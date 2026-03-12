@@ -84,6 +84,7 @@ type Env = {
   ENTERPRISE_DAILY_LIMIT?: string;
   PUBLIC_APP_URL?: string;
   REQUIRE_AUTH?: string;
+  INTERNAL_API_KEY?: string;
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
@@ -665,6 +666,53 @@ async function sendDailyAlertEmail(
   return { sent: true };
 }
 
+async function generateDailyBrief(_env: Env): Promise<{
+  title: string;
+  timestamp: string;
+  priorities: string[];
+}> {
+  return {
+    title: "AI ASSASSINS 0700 BRIEF",
+    timestamp: new Date().toISOString(),
+    priorities: [
+      "Stabilize production",
+      "Monitor error logs",
+      "Advance monetization",
+      "Deploy next feature phase"
+    ]
+  };
+}
+
+async function persistDailyBriefToSupabase(env: Env, brief: { title: string; [key: string]: unknown }): Promise<void> {
+  const supabaseUrl = String(env.SUPABASE_URL || "").trim();
+  const serviceRoleKey = String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+  }
+
+  const endpoint = `${supabaseUrl.replace(/\/+$/, "")}/rest/v1/briefs`;
+  const payload = {
+    user_id: "SYSTEM_USER",
+    title: brief.title,
+    content: brief
+  };
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(`Supabase insert failed (${response.status}): ${detail.slice(0, 300)}`);
+  }
+}
+
 async function buildStrategicBrief(env: Env, date: string): Promise<StrategicBrief> {
   const base = await buildCommandBrief(env, date);
   const generated = await generateBrief(env, { timezone: env.BRIEF_TIMEZONE || "America/Chicago" });
@@ -933,13 +981,11 @@ async function handleUnifiedWebhook(
 }
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const startedAt = Date.now();
     const url = new URL(request.url);
     const origin = request.headers.get("Origin");
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
-    console.log(`[request] ${request.method} ${url.pathname}`);
-    console.log(`[request-ip] ${ip}`);
     const envWarnings = requiredEnvWarnings(env);
     if (envWarnings.length) {
       console.warn("[config-warning]", envWarnings.join("; "));
@@ -1399,6 +1445,16 @@ export default {
       }
 
       if ((url.pathname === "/api/brief" || url.pathname === "/brief" || url.pathname === "/api/generate") && request.method === "POST") {
+        if (url.pathname === "/api/generate") {
+          const API_KEY = env.INTERNAL_API_KEY;
+          if (request.headers.get("x-api-key") !== API_KEY) {
+            return new Response(
+              JSON.stringify({ success: false, error: "Unauthorized" }),
+              { status: 401 }
+            );
+          }
+        }
+
         const auth = await getAuthContext(request, env);
         const rejected = authRejected(auth, env);
         if (rejected) return rejected;
@@ -1712,13 +1768,42 @@ export default {
       return errResult(normalized.message, env, normalized.status);
     } finally {
       const elapsedMs = Date.now() - startedAt;
-      console.log(`[execution-time-ms] ${elapsedMs}`);
+      console.log(JSON.stringify({
+        type: "request",
+        ip,
+        path: url.pathname,
+        executionTime: elapsedMs,
+        timestamp: Date.now()
+      }));
     }
   },
 
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
     try {
-      console.log("0700 Commander Mode Triggered:", new Date().toISOString());
+      console.log("0700 Daily Brief Triggered");
+      const brief = await generateDailyBrief(env);
+      console.log(JSON.stringify({
+        type: "daily_brief",
+        timestamp: Date.now(),
+        brief
+      }));
+      try {
+        await persistDailyBriefToSupabase(env, brief);
+        console.log(JSON.stringify({
+          type: "daily_brief_persist",
+          status: "success",
+          timestamp: Date.now(),
+          title: brief.title
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(JSON.stringify({
+          type: "daily_brief_persist",
+          status: "failure",
+          timestamp: Date.now(),
+          error: message
+        }));
+      }
       const sendWindow = shouldSendNow({
         BRIEF_TIMEZONE: env.BRIEF_TIMEZONE || "America/Chicago",
         BRIEF_SEND_HHMM: String(env.BRIEF_SEND_HHMM || "0700"),
