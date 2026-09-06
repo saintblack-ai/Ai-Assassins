@@ -1,6 +1,42 @@
 # AI-Assassins
 
-AI-Assassins is a Cloudflare Worker + static dashboard system for generating daily strategic briefs with tier limits, automation, and billing hooks.
+> **Proof-of-work overview:** AI-Assassins is an independent AI automation and SaaS project that combines OpenAI-powered brief generation, scheduled workflows, agent-style task execution, usage tiers, billing hooks, email delivery, and a public dashboard.
+
+## What I Built
+
+I designed and developed this project as a practical system for turning AI-assisted research and structured prompts into repeatable digital workflows. The repository demonstrates work across:
+
+- AI-assisted brief generation and structured outputs
+- Cloudflare Worker APIs and scheduled cron automation
+- Supabase-backed application data and usage tracking
+- Stripe subscription and tier logic
+- Resend email delivery
+- Draft-first agent workflows for distribution, outreach, conversion, and quality
+- Public dashboard and sanitized sample surfaces
+- Logging, smoke testing, deployment, and operational monitoring
+
+## My Role
+
+**Independent AI Automation Builder / Creative Technologist**
+
+My work includes concept development, system planning, prompt/workflow design, implementation, testing, troubleshooting, documentation, visual/product direction, and iterative improvement. I use AI as a development partner while keeping human review and control over important actions.
+
+## Technology Stack
+
+- OpenAI API
+- TypeScript / JavaScript
+- Cloudflare Workers + Wrangler
+- Supabase
+- Stripe
+- Resend
+- GitHub / GitHub Pages
+- KV storage and scheduled automation
+
+## Why This Project Matters
+
+This project reflects how I approach AI automation work: define a useful workflow, connect the required services, build safeguards around execution, test the system, and turn the result into something a user or team can operate repeatedly.
+
+---
 
 ## Architecture
 - Frontend: `docs/` (GitHub Pages)
