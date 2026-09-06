@@ -85,11 +85,12 @@ jobs:
       - name: Build iOS archive
         run: |
           xcodebuild \
-            -workspace mobile/ios/App/App.xcworkspace \
+            -project mobile/ios/App/App.xcodeproj \
             -scheme App \
             -configuration Release \
             -sdk iphoneos \
             -archivePath mobile/ios/build/App.xcarchive \
+            CODE_SIGNING_ALLOWED=NO \
             archive
       - name: Export IPA (if export options configured)
         if: ${{ env.IOS_EXPORT_OPTIONS_PLIST_BASE64 != '' }}
