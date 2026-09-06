@@ -2,6 +2,8 @@
 
 > **Proof-of-work overview:** AI-Assassins is an independent AI automation and SaaS project that combines OpenAI-powered brief generation, scheduled workflows, agent-style task execution, usage tiers, billing hooks, email delivery, and a public dashboard.
 
+> **Mobile CI:** Capacitor mobile builds use Node.js 22+ to match the current Capacitor CLI engine requirement.
+
 ## What I Built
 
 I designed and developed this project as a practical system for turning AI-assisted research and structured prompts into repeatable digital workflows. The repository demonstrates work across:
