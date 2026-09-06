@@ -26,11 +26,14 @@ jobs:
         run: npm --prefix mobile install
       - name: Add Android project if missing
         run: |
-          if [ ! -d mobile/android ]; then
-            npx --prefix mobile cap add android
+          cd mobile
+          if [ ! -d android ]; then
+            npx cap add android
           fi
       - name: Sync web assets
-        run: npx --prefix mobile cap sync android
+        run: |
+          cd mobile
+          npx cap sync android
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
@@ -71,11 +74,14 @@ jobs:
         run: npm --prefix mobile install
       - name: Add iOS project if missing
         run: |
-          if [ ! -d mobile/ios ]; then
-            npx --prefix mobile cap add ios
+          cd mobile
+          if [ ! -d ios ]; then
+            npx cap add ios
           fi
       - name: Sync web assets
-        run: npx --prefix mobile cap sync ios
+        run: |
+          cd mobile
+          npx cap sync ios
       - name: Build iOS archive
         run: |
           xcodebuild \
